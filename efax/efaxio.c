@@ -310,8 +310,8 @@ int modemsync ( TFILE *f )
     case 0 : 
       break ;
     case 1 :
-      break ;
       ttymode ( f, VOICECOMMAND ) ;
+      break ;
     case 2 : 
       msg ("Isync: dropping DTR") ;
       ttymode ( f, COMMAND ) ; msleep ( 200 ) ;

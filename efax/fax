@@ -94,8 +94,10 @@ LOCK='-x /var/lock/LCK..$DEV' 			# modern systems
 # FCINIT='-j\Q4'		# AT&T (Dataport, Paradyne)
 # FCINIT='-j\Q1'		# Motorola (Power Modem, 3400 Pro,...)
 # FCINIT='-j*F1'		# QuickComm (Spirit II)
-# FCINIT='-j&H2'		# USR (Courier, Sportster)
+# FCINIT='-j&H2&I0&R1&D3I4'	# USR (Courier, Sportster)
 # FCINIT='-or'			# Multi-Tech (for bit reversal)
+
+# FCINIT="$FCINIT -j+FBO=0"	# USR modems using Class 2.0
 
 # ****************************************************************
 # The remaining options probably won't need to be changed.
@@ -200,11 +202,11 @@ PRINT='$EFIX -ve -p$PAGEDIM -r300 -s0.98 -d0,0.125 -o$PRTYPE $f'
 # VIEW='$EFIX -ve -p$PAGEDIM -r200 -opgm $f' 	# 50dpi: fast, whole-page view
 VIEW='$EFIX -ve -p$PAGEDIM -r300 -opgm $f'	# 75dpi: slower, readable size
 
-# Commands to set up modem.  "-iZ -i&FE&D2S7=120 -i&C0"
+# Commands to set up modem.  "-iZ -iE0&D2S7=120 -i&C0"
 # works with almost all modems.  See the efax(1) man page for
 # details.
 
-INIT="-iZ -i&FE&D2S7=120 -i&C0"
+INIT="-iZ -i&FE0&D2S7=120 -i&C0"
 
 # Command(s) to reset modem when efax finishes. "-kZ" works in
 # almost all cases.
@@ -220,6 +222,7 @@ SPKR="-iM1L0"
 # Options to use a particular command sets.  Normally efax
 # selects the command set based on the modem's capabilities.  Use
 # -o1 to force Class 1, -o2 for Class 2 and -o0 for Class 2.0.
+# Class 2 is not the same as Class 2.0
 
 # CLASSINIT="-o1"	# Class 1
 # CLASSINIT=""		# Class 2
@@ -332,13 +335,13 @@ SENDMAIL=/usr/sbin/sendmail
 # as MIME image/tiff attachments.  Comment this out to do
 # nothing.  Protect with single quotes.
 
-NOTIFY='faxmail "$REMID" "$f" $FILES | $SENDMAIL $FAXMGR'
+NOTIFY='faxmail | $SENDMAIL $FAXMGR'
 # NOTIFY='mail -s "fax/message from $REMID: $FILES" $FAXMGR <$f'
 # NOTIFY='lpr $f ; $FAX print $OPT $FILES'
 
 # The number of rings to wait before answering.
 
-ANSRINGS=1
+ANSRINGS=4
 
 # If you want to enable fax/data adaptive answer (AA) read the
 # efax man page and define DATAINIT to be the options that enable
@@ -410,7 +413,7 @@ for f in $CONFIGFILES
 do
 	if [ -r $f ]
 	then
-		eval "`cat $f`"
+		. $f
 	fi
 done
 
@@ -468,24 +471,26 @@ esac
 # -------- functions
 
 faxmail () {
-   echo "Subject: fax/message from $1"
-   shift
+   echo "Subject: fax/message from $REMID : $FILES"
+   echo "Mime-Version: 1.0"
    echo "Content-Type: multipart/mixed; boundary=EFAX_MAIL"
    echo ""
    echo "--EFAX_MAIL"
    echo "Content-Type: text/plain; charset=\"us-ascii\""
    echo "Content-Transfer-Encoding: 7bit"
    echo ""
-   cat $1
-   shift
-   for f in $*
+   cat $f
+   for f in $FILES
    do
      echo "--EFAX_MAIL"
-     echo "Content-Type: image/tiff"
+     echo "Content-Type: image/tiff; name=\"$f.tiff\""
      echo "Content-Transfer-Encoding: base64"
+     echo "Content-Disposition: attachment; filename=\"$f.tiff\""
      echo ""
      $EFIX -M <$f
+     echo "--EFAX_MAIL--"
    done
+   echo "--EFAX_MAIL--"
 }
 
 # -------- export variables for fone script
@@ -509,8 +514,6 @@ case $cmd in
 		break
 	fi
 
-	while [ -f ${DEVN}.stop ] ; do sleep 15 ; done
-
 	umask $UMASK
 	case $OWNER in '') ;; *) chown $OWNER /dev/$DEV ;; esac
 	case $MODE  in '') ;; *) chmod $MODE  /dev/$DEV ;; esac
@@ -528,12 +531,15 @@ case $cmd in
 			-e tok -e b -e ':ok' -e q $f`
 		case $REMID in '') REMID='?' ;; esac
 		eval $NOTIFY
-		echo   >>${LOGDIR}/${DEVN}.log
-		cat $f >>${LOGDIR}/${DEVN}.log
-	  	$RM $f
+		echo   >>${LOGDIR}/${DEVN}.log && \
+		cat $f >>${LOGDIR}/${DEVN}.log && \
+  		$RM $f || \
+		echo "Error: $FAX cannot save log files" >>$CONSOLE
 	  ;;
 	  esac
 	done	
+
+	while [ -f ${DEVN}.stop ] ; do sleep 15 ; done
 
 	exec $NICE $EFAX -v "" -v "$VERBLOG" -d/dev/$DEV $INIT $SPKR \
 	$CLASSINIT $FCINIT $RXINIT $LOCK \
@@ -579,12 +585,12 @@ case $cmd in
 	do
 		if [ -r $f ]
 		then
- 			echo
- 			echo Fax files in `pwd` :
- 			echo
- 			$LS -l [0-9]*.[0-9][0-9][0-9]  [0-9]*.v
- 			echo
- 		       	break
+			echo
+			echo Fax files in `pwd` :
+			echo
+			${LS} -l [0-9]*.[0-9][0-9][0-9]  [0-9]*.v 2>/dev/null
+			echo
+		       	break
  		fi
 	done
 
@@ -595,16 +601,27 @@ case $cmd in
 
 	faxlpr)
 
-	cd $FAXDIR		# the lpr spool directory for printer 'fax'
-	case $? in 0) ;; *) echo "$0: cannot cd to $FAXDIR" ; break ;; esac
+	# display permissions for debugging
+	echo "$0: running as:" >&2 ; id -a >&2
+	${LS} -ld $FAXDIR >&2
 
-	test -r lock
-	case $? in 0) ;; *) echo "$0: can't read lock file" ; break ;; esac
+	# the lpr spool directory for printer 'fax'
+	if ! cd $FAXDIR
+	then 
+		echo "$0: cannot cd to $FAXDIR" >&2 ; break 
+	fi
+
+	if ! test -r lock
+	then 
+		echo "$0: can't read lock file" >&2  ; break 
+	fi
 	
 	cfile=`tail -1 lock`
 
-	test -r $cfile
-	case $? in 0) ;; *) echo "$0: can't read control file" ; break ;; esac
+	if ! test -r $cfile
+	then
+		echo "$0: can't read control file" >&2  ; break 
+	fi
 
 	cfile=`cat $cfile`
 
@@ -612,10 +629,16 @@ case $cmd in
 	host=`echo "$cfile" | sed -e /^[^H]/d -e s/.//`
 	user=`echo "$cfile" | sed -e /^[^P]/d -e s/.//`
 
-	test "$num"
-	case $? in 0) ;; *) echo "$0: can't read phone number" ; break ;; esac
+	if ! test "$num"
+	then
+		echo "$0: can't read phone number" >&2  ; break 
+	fi
 
-	cat - >> fax$$			# save in a file
+	# save stdin in a file
+	if ! cat - >> fax$$
+	then
+		echo "$0: can't write `pwd`/fax$$" >&2  ; break 
+	fi
 
 	l=`$FAX send "$num" fax$$`
 
@@ -639,7 +662,7 @@ case $cmd in
 	n= ; for f in ${DEVN}.[0-9]* ; do logfile="$f" ; n=x$n ; done
 
 	case $n in 
-	xx*) echo Warning: multiple logs for $DEV : ; ls ${DEVN}.[0-9]* ;;
+	xx*) echo Warning: multiple logs for $DEV : ; ${LS} ${DEVN}.[0-9]* ;;
 	esac
 
 	case $logfile in 
@@ -1031,7 +1054,7 @@ EOF
 	;;
 
 	*)
-	echo "Error. Invalid command ($cmd)" ; ERR=2 ; break
+	echo "Error. Invalid command (${cmd})" ; ERR=2 ; break
 	;;
 
 esac	

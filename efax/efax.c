@@ -1,6 +1,6 @@
 #define Copyright         "Copyright 1999 Ed Casas"
 
-#define Version		  "efax v 0.9"
+#define Version		  "efax v 0.9a-001114"
 
 /*
     Copyright (C) 1999  Ed Casas
@@ -22,9 +22,7 @@
     Please contact the author if you wish to use efax or efix in
     ways not covered by the GNU GPL.
 
-    You may contact the author by e-mail at: edc@cce.com, by mail
-    at: 2629 West 3rd Ave, Vancouver, BC, Canada, V6K 1M4, or by
-    fax at: +1 604 734 5291.
+    You may contact the author by e-mail at: edc@cce.com.
 
 */
 
@@ -67,6 +65,7 @@ const char *Usage =
   ;
 
 #include <ctype.h>		/* ANSI C */
+#include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,11 +84,14 @@ const char *Usage =
 #define T3S 30		    /* T.30 response timeout (not T3) */
 #define T4 30		    /* T.30 T4 - between [re]transmissions of DIS */
 
+#define TCFSECS 1.5	    /* TCF duration (seconds, nominally 1.5) */
+
 #define TMOD 55             /* T.30 pause between v.21&v.29, 75-20 ms */
+#define MODDLY "5"	    /* same as above, a string */
 
 #define TO_A     1200	    /* dial/answer (Phase A) - modem may t/o first */
 #define TO_ABRT  20	    /* max delay after sending abort sequence */
-#define TO_CHAR  102	    /* per data character (2x max FILL length) */
+#define TO_CHAR  51	    /* per data character (max FILL length) */
 #define TO_DATAF 80	    /* software adaptive answer data connect t/o */
 #define TO_DRAIN_H 136	    /* minimum HDLC buffer drain time (4k/300cps) */
 #define TO_DRAIN_D 300	    /* minimum data buffer drain time */
@@ -100,7 +102,7 @@ const char *Usage =
 #define TO_C2X    20	    /* Class 2 wait for XON: 2/5 of 5s timeout */
 #define TO_C2PP   200	    /* Class 2 wait for ppr: (ppm+ppr)x3retries + 2 */
 #define TO_C2R    600	    /* Class 2 receive: (TCF+FTT)x11 retrains + 5 */
-#define TO_C2EOR  120	    /* Class 2 end of data rx (4 retrans x 3 s) */
+#define TO_C2EOR  160	    /* Class 2 end of data rx (4 retrans x 4 s) */
 
 #define ANSCMD  "A"	    /* default modem command to answer calls */
 #define DCSLEN 3	    /* length of FIF for DCS commands sent */
@@ -617,8 +619,10 @@ int send_data ( TFILE *mf, IFILE *f, int page, int pages,
 
   /* start T.4 data with some FILL and an EOL */
 
-  for ( i=0 ; i<32 ; i++ )
-    p = putcode ( &e, 0, 8, buf ) ;
+  p = buf ;
+  for ( i=0 ; i<32 ; i++ ) {
+    p = putcode ( &e, 0, 8, p ) ;
+  }
   p = putcode ( &e, EOLCODE, EOLBITS, p ) ;
 
   if ( ! f || ! f->f ) 
@@ -815,7 +819,8 @@ int readfaxruns ( TFILE *f, DECODER *d, short *runs, int *pels )
    file.  Checks for errors by comparing received line width and
    session line width.  Check that the output file is still OK
    and if not, send one CANcel character and wait for protocol to
-   complete. Returns 0 if OK or 2 if there was a file write error. */
+   complete. Returns 0 if OK, 1 on DLE-ETX without RTC, or 2 if
+   there was a file write error. */
 
 int receive_data ( TFILE *mf, OFILE *f, cap session, int *nerr )
 {
@@ -829,7 +834,6 @@ int receive_data ( TFILE *mf, OFILE *f, cap session, int *nerr )
   } 
   
   newDECODER ( &d ) ;
-  *nerr = 0 ;
 
   lines=0 ; 
   for ( line=0 ; ( nr = readfaxruns ( mf, &d, runs, &len ) ) >= 0 ; line++ ) {
@@ -855,8 +859,11 @@ int receive_data ( TFILE *mf, OFILE *f, cap session, int *nerr )
     msg ("W- %d reception errors", *nerr ) ;
   }
 
-  if ( nr == EOF )
+  if ( nr == EOF ) { 
     while ( tgetd ( mf, TO_CHAR ) >= 0 ) ; /* got RTC, wait for DLE-ETX */
+  } else {
+    err = 1 ;			/* DLE-ETX without RTC - should try again */
+  }
 
   msg ( "I- received %d lines, %d errors", lines, *nerr ) ;
 
@@ -871,25 +878,42 @@ int puttrain ( TFILE *f, char *s, int n  )
   int i, m, err=0 ;
   uchar buf [ MINWRITE ] = { 0 } ;
 
+#ifdef ADDTCFRTC
+  ENCODER e ;
+  uchar *p ;
+#endif
+
   ckcmd ( f, &err, s, TO_FT, CONNECT ) ;
   
   if ( ! err ) {
     ttymode ( f, SEND ) ;
+
+    /* send n bytes of zeros */
 
     for ( i=0 ; i < n ; i += m ) {
       m = n-i < MINWRITE ? n-i : MINWRITE ;
       sendbuf ( f, buf, m, 0 ) ;
     }
 
-    buf[0] = 1 ;		/* make sure last byte is non-zero */
-    buf[1] = DLE ;
-    buf[2] = ETX ;
-    sendbuf ( f, buf, 3, 0 ) ;
+#ifdef ADDTCFRTC
+    /* append RTC in case modem is looking for it */
 
-    ttymode ( f, COMMAND ) ;
+    newENCODER ( &e ) ;
+
+    p = buf ;
+    for ( i=0 ; i < RTCEOL ; i++ )
+      p = putcode ( &e, EOLCODE, EOLBITS, p ) ;
+    p = putcode ( &e, 0, 0, p ) ;
+    sendbuf ( f, buf, p - buf, 0 ) ;
+#endif
+
+    tput ( f, DLE_ETX, 2 ) ; 
+
 
     ckcmd ( f, &err, 0, TO_DRAIN_D, OK ) ;
     msg ( "I- sent TCF - channel check of %d bytes", n ) ;
+
+    ttymode ( f, COMMAND ) ;
   }
   
   return err ;
@@ -1143,10 +1167,11 @@ int getfr ( TFILE *mf, uchar *buf, int getcmd )
   if ( ! err && frlen < 3 ) 
     err = msg ( "E3received short frame (%d bytes)", frlen ) ;
 
+  logfr ( "received", frname ( buf [ 2 ] ), buf, frlen ) ;
+
   if ( ! err ) {
 
     frlen = fixframe ( buf, frlen, mf ) ;
-    logfr ( "received", frname ( buf [ 2 ] ), buf, frlen ) ;
     frame = buf [ 2 ] & 0x7f ;
 
     switch ( frame ) {
@@ -1256,12 +1281,14 @@ int c1sndrcv (
   if ( ! err ) 
     err = putframe ( DCS | SUB_FR | disbit, buf, DCSLEN, mf, -1 ) ;
 
-  if ( cmd ( mf, "+FTS=8", T3S ) != OK )
+#ifdef USEFTS
+  if ( cmd ( mf, "+FTS=" MODDLY, T3S ) != OK )
+#endif
     msleep ( TMOD ) ;		/* if +FTS not supported */
 
   if ( ! err ) 
     err = puttrain ( mf, c1cmd[SND][TRN][session[BR]], 
-		    1.5*cps [ session[BR] ] ) ;
+		    TCFSECS*cps [ session[BR] ] ) ;
   try++ ;
 
   if ( ! err ) {
@@ -1308,15 +1335,19 @@ int c1sndrcv (
  I_2:
 
   ckcmd ( mf, &err, c1cmd [SND][DTA][session[BR]], TO_FT, CONNECT ) ;
-  if ( !err )
+  if ( !err ) {
+    msleep ( 1000 ) ;
     err = send_data ( mf, inf, page, pages, local, session, header, font ) ;
+  }
 
   pagetry++ ;
 
   if ( !err )
     err = end_data ( mf, session, 0, 0 ) ;
   
-  if ( cmd ( mf, "+FTS=8", T3S ) != OK )
+#ifdef USEFTS
+  if ( cmd ( mf, "+FTS=" MODDLY, T3S ) != OK )
+#endif
     msleep ( TMOD ) ;		/* if +FTS not supported */
 
 				/* fix ppm if on last page of stdin */
@@ -1478,17 +1509,26 @@ int c1sndrcv (
     outf->h=0;
     outf->xres=204.0;
     outf->yres=vresolution[session[VR]];
+    nerr = 0 ;
     
+  re_getdata:
+
     if ( cmd ( mf, c1cmd [RCV][DTA][session[BR]], TO_FT ) != CONNECT ) 
       goto F ;			/* +FCERROR -> DCS resent */
     
-    if ( receive_data ( mf, outf, session, &nerr ) == 0 ) {
+    switch ( receive_data ( mf, outf, session, &nerr ) ) {
+    case 0:
       good = nerr < maxpgerr ;
       msg ( "I-received -> %s", outf->cfname ) ;
       writepending=1 ;		/* ppm follows immediately, don't write yet */
       rxpage++ ;
-    } else {
+      break ;
+    case 1:
+      /* no RTC, re-issue +FRM command */
+      goto re_getdata ;
+    default:
       good = 0 ;
+      break ;
     }
     ckcmd ( mf, 0, 0, TO_RTCMD, NO ) ;
     goto F ;
@@ -1756,6 +1796,7 @@ int c2sndrcv (
    	outf->h=0;
 	outf->xres=204.0;
 	outf->yres=vresolution[session[VR]];
+	nerr = 0 ;
 	
 	tput ( mf, &startchar, 1 ) ;
 
@@ -1769,7 +1810,7 @@ int c2sndrcv (
 	ckcmd ( mf, &err, 0, TO_C2EOR, OK ) ;
 
 	if ( err || gethsc ( &hsc, &err ) )  { 
-	  wrpage ( outf, +1 ) ;
+	  wrpage ( outf, page+1 ) ;
 	  wrpage ( outf, -1 ) ;
 	  done=1 ; 
 	  continue ; 
@@ -2074,7 +2115,10 @@ int modem_init ( TFILE *mf, cap c, char *id,
 
     if ( c20 ) {
       ckcmd ( mf, 0, "+FIP", t, OK ) ;
-      ckcmd ( mf, 0, "+FNR=1,1,1,1", t, OK ) ;
+      ckcmd ( mf, 0, "+FNR=1,1,1,0", t, OK ) ;
+
+      ckcmd ( mf, 0, "+FLO=1", t, OK ) ;
+      ckcmd ( mf, 0, "+FBO=0", t, OK ) ;
     }
 
     ckcmd ( mf, &err, "+FCR=1", t, OK ) ;
@@ -2191,6 +2235,8 @@ int main( int argc, char **argv)
   argv0 = efaxbasename ( argv0 ) ;
   msg ( "A compiled "__DATE__ " " __TIME__ ) ;
   verb[1] = "" ;
+
+  setlocale ( LC_ALL, "" ) ;
 
   while ( ! err && ! doneargs &&
 	 ( c = nextopt ( argc,argv,

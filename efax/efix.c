@@ -22,9 +22,7 @@
     Please contact the author if you wish to use efax or efix in
     ways not covered by the GNU GPL.
 
-    You may contact the author by e-mail at: edc@cce.com, by mail
-    at: 2629 West 3rd Ave, Vancouver, BC, Canada, V6K 1M4, or by
-    fax at: +1 604 734 5291.
+    You may contact the author by e-mail at: edc@cce.com.
 
 */
 
@@ -68,6 +66,7 @@ const char *Usage =
 
 #include <ctype.h>		/* ANSI C */
 #include <limits.h>
+#include <locale.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -250,6 +249,8 @@ int main( int argc, char **argv)
 
   argv0 = argv[0] ;
 
+  setlocale ( LC_ALL, "" ) ;
+
   /* process arguments */
 
   while ( !err && (c=nextopt(argc,argv,"n:i:o:O:v:l:f:r:s:p:d:R:M") ) != -1) {
@@ -406,10 +407,11 @@ int main( int argc, char **argv)
     
     while ( linesout < h ) {
 
-      if  ( ( nr = readline ( &ifile, runs, &pels ) ) < 0 )
+      if ( ! ifile.lines || ( nr = readline ( &ifile, runs, &pels ) ) < 0 ) {
 	break ;
-      else
+      } else {
 	ilines++ ;
+      }
 
       if ( *ovfnames ) {
 	if ( ( ovnr = readline ( &ovfile, ovruns, &ovpels ) ) >= 0 )

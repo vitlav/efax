@@ -1,15 +1,17 @@
-Summary: A program for faxing using a Class 1, 2 or 2.0 fax modem
 Name: efax
-Version: 0.9
-Release: ipl10mdk
+Version: 0.9a001114
+Release: alt1
+
+Summary: A program for faxing using a Class 1, 2 or 2.0 fax modem
+Summary(ru_RU.KOI8-R): Программа для отправки и приёма факсов через факс-модем
+
 License: GPL
 Group: Communications
-Source: http://metalab.unc.edu/pub/Linux/apps/serialcomm/fax/efax-0.9.tar.bz2
-Patch1: efax-0.9-altconf.bz2
-Patch2: efax08a-time.patch
-Patch3: efax-0.9-make.patch
-Patch4: efax-0.9-nullptr.patch
-Patch5: efax-0.9-numlines.patch
+Url: http://www.cce.com/efax/
+
+Source: http://www.cce.com/efax/download/%name-%version.tar.bz2
+Source1: %name-%version.config
+Patch1: %name-%version.patch
 
 %description
 Efax is a small ANSI C/POSIX program that sends and receives faxes using
@@ -18,37 +20,49 @@ any Class 1, 2 or 2.0 fax modem.
 You need to install efax if you want to send faxes and you have a
 Class 1, 2 or 2.0 fax modem.
 
+Please check /etc/efax.rc for your parameters (telephon number and machine id)
+
+%description -l ru_RU.KOI8-R
+Efax -- это маленькая программа, написанная на ANSI C/POSIX, которая позволяет
+принимать и отправлять факсы через любой факс-модем класс 1, 2 или 2.0.
+
+Не забудьте проверить настройки в /etc/efax.rc (номер телефона и название станции)
+
 %prep
 %setup -q
 %patch1 -p1
-%patch2 -p1
-%patch3 -p1
-%patch4 -p1
-%patch5 -p1
 
 %build
-%make_build RPM_OPT_FLAGS="-ansi $RPM_OPT_FLAGS"
+%make LDFLAGS="-s"
+%__subst "s|logfile=|logfile=\${LOGDIR}/|g" fax
 
 %install
 mkdir -p $RPM_BUILD_ROOT%_bindir
 mkdir -p $RPM_BUILD_ROOT%_mandir/man1
+mkdir -p $RPM_BUILD_ROOT/var/spool/fax
 
 make BINDIR=$RPM_BUILD_ROOT%_bindir MANDIR=$RPM_BUILD_ROOT%_mandir install
 
-mkdir -p $RPM_BUILD_ROOT%_sysconfdir
-cp fax.config $RPM_BUILD_ROOT%_sysconfdir
+%__install -D -m644 %SOURCE1 $RPM_BUILD_ROOT%_sysconfdir/%name.rc
 
 %files
-%doc README
-%config %_sysconfdir/fax.config
+%doc README PATCHES
+%config(noreplace) %_sysconfdir/%name.rc
 %_bindir/fax
-%_bindir/efax
+%_bindir/%name
 %_bindir/efix
-%_mandir/man1/fax.1*
-%_mandir/man1/efax.1*
-%_mandir/man1/efix.1*
+%_mandir/man1/*
+%attr(775, lp, lp) /var/spool/fax
 
 %changelog
+* Wed Jun 16 2004 Vitaly Lipatov <lav@altlinux.ru> 0.9a001114-alt1
+- updated version with better support some Linmodems
+- patches from efax-gtk project
+- spec cleanup
+- move config file to original place - /etc/efax.rc
+- make good default configuration in efax.rc
+- logfiles created in LOGDIR only
+ 
 * Mon Oct 28 2002 Konstantin Volckov <goldhead@altlinux.ru> 0.9-ipl10mdk
 - Rebuilt in new environment
 

@@ -127,6 +127,7 @@ typedef struct PAGEstruct {	/* page data */
   float xres, yres ;		/* x and y resolution, dpi */
   uchar format ;		/* image coding */
   uchar revbits ;		/* fill order is LS to MS bit */
+  uchar black_is_zero ;		/* black is encoded as zero */
 } PAGE ;
 
 typedef struct ifilestruct {	/* input image file  */

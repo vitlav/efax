@@ -161,6 +161,27 @@ int xscale ( short *p, int nr, int xs )
   return outlen ;
 }
 
+/* Invert a run-length buffer by prepending or removing a
+   zero-length initial run. */
+
+int xinvert ( short *p, int nr )
+{
+  int i ;
+  if ( ! *p ) {
+    for ( i=0 ; i<nr-1 ; i++ ) { /* remove */
+      p[i] = p[i+1] ;
+    }
+    nr-- ;
+  } else {
+    for ( i=nr ; i>0 ; i-- ) {	/* insert */
+      p[i] = p[i-1] ;
+    }
+    p[0] = 0 ;
+    nr++ ;
+  }
+  return nr ;
+}
+
 
 /* Zero-terminated lists of run lengths for each byte. */
 
@@ -581,22 +602,26 @@ int readline ( IFILE *f, short *runs, int *pels )
     case P_FAX:
       nr = readruns ( f, runs, pels ) ;
       break ;
-
+      
     case P_PCX:
       nb = ( ( f->page->w + 15 ) / 16 ) * 2 ;	/* round up */
       if ( readpcx ( bits, nb, f ) != 0 ) {
 	nr = EOF ;
       } else {
-	nr = bittorun ( bits, nb, runs ) ;
+   	nr = bittorun ( bits, nb, runs ) ;
 	if ( pels ) *pels = f->page->w ;
       }
       break ;
-
+      
     }
   } else {
     nr = EOF ;
   }
   
+  if ( nr >= 0 && f->page->black_is_zero ) { /* invert */
+    nr = xinvert ( runs, nr ) ;
+  }
+
   if ( nr >= 0 && f->lines > 0 ) f->lines-- ;
   
   return nr ;
@@ -675,8 +700,8 @@ void page_init ( PAGE *p, char *fn )
   p->yres = DEFYRES ;
   p->format = P_FAX ;
   p->revbits = 0 ;
+  p->black_is_zero = 0 ;
 }
-
 
 void page_report ( PAGE *p, int fmt, int n )
 {
@@ -837,6 +862,9 @@ int tiff_next ( IFILE *f )
       } else {
 	err = msg ( "E2can only read TIFF/G3 or TIFF/uncompressed" ) ;
       }
+      break ;
+    case 262 :			/* photometric interpretation */
+      f->page->black_is_zero = tv ;
       break ;
     case 266 :			/* fill order */
       f->page->revbits = ( tv == 2 ? 1 : 0 ) ;

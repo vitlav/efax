@@ -176,7 +176,7 @@ place n lines per page during text input. Default is 66.
 .TP 9
 .B -O \fIf\fP
 overlay (logical OR) the image from file f into the output.  Use
-'-' for standard input (-O-).  Default is no overlay file.
+"-" for standard input (-O-).  Default is no overlay file.
 
 .TP 9
 .B -M
@@ -217,15 +217,15 @@ output image would be 2 inches wide and 1 inch high.
 
 The -O option allows efix to superimpose two or more images.  The
 overlay image must be in fax format and cannot be scaled,
-truncated or shifted. However, multiple efix commands may be
-pipelined to transform images before combining them.  For
-example, the command
+truncated or shifted. However, multiple efix commands may be used
+to transform images before combining them.  For example, the
+commands
 .RS
 .nf
 .ft CW
-	efix -d4,8 signature | \\
-	efix -O- letterhead | \\
-	efix -O- letter.002 >letter.002.new
+	efix -d4,8 signature >sig.fax
+	efix -O sig.fax letterhead >letterhead.fax
+	efix -O letterhead.fax letter.002 >letter.002.new
 .ft P
 .fi
 .RE

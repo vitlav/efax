@@ -1006,7 +1006,7 @@ script can determine when it is being invoked from the print
 spooler:
 
 .ft CW
-ln /usr/bin/fax /usr/bin/faxlpr
+ln -s /usr/bin/fax /usr/bin/faxlpr
 .ft P
 
 
@@ -1022,7 +1022,8 @@ fax:lp=/dev/null:sd=/var/spool/fax:if=/usr/bin/faxlpr:
 
 to define a printer called "fax".  Print files will be spooled to
 the /var/spool/fax (sd=) directory and then piped to the
-/usr/bin/faxlpr filter (if=).
+/usr/bin/faxlpr filter (if=).  Error messages will appear on
+/dev/console.
 
 (3) Create and/or set the permissions to allow anyone to read and
 write in the fax spool directory.  For example:

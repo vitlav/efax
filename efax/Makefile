@@ -33,7 +33,10 @@ efix:	efix.o efaxlib.o efaxmsg.o
 
 install:
 	cp fax efax efix $(BINDIR)
+	chmod 755 $(BINDIR)/fax $(BINDIR)/efax $(BINDIR)/efix
 	cp fax.1 efax.1 efix.1 $(MANDIR)/man1
+	chmod 644 $(MANDIR)/man1/fax.1 $(MANDIR)/man1/efax.1  \
+		$(MANDIR)/man1/efix.1
 
 clean:	
 	rm -f efax efix efax.o efix.o efaxlib.o efaxio.o efaxos.o efaxmsg.o
