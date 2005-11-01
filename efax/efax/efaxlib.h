@@ -216,4 +216,11 @@ void initbittab(void) ;
 
 int ckfmt ( char *p, int n ) ;
 
+/* utility function for combining two strings: the output is a null
+   terminated string constructed on the heap comprising first str1 and
+   then str2 (free with free()) - added by Chris Vine September 2005
+   as part of the internationalization of efax */
+
+char *strdup2 ( const char *str1, const char *str2 ) ;
+
 #endif

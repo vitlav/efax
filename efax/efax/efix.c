@@ -26,6 +26,18 @@
 
 */
 
+/*
+    The call to setlocale(LC_NUMERIC, "C") was added by Chris Vine 13
+    September 2005 to avoid incorrect floating point representation in
+    locales which use the comma instead of the full-stop as the
+    decimal separator.
+
+    The following patche from http://shino.pos.to/linux/efax/ also
+    applied:
+
+      efax-0.9-numlines.patch
+*/
+
 const char *Usage =
   "Usage:\n"
   "  %s [ option ]... file... \n"
@@ -250,6 +262,11 @@ int main( int argc, char **argv)
   argv0 = argv[0] ;
 
   setlocale ( LC_ALL, "" ) ;
+  /*
+    efix uses formatted text functions for floating point numbers, so restore
+     the C locale for that
+  */
+  setlocale ( LC_NUMERIC, "C" ) ;
 
   /* process arguments */
 
@@ -298,6 +315,9 @@ int main( int argc, char **argv)
 
   if ( ! err && ! done ) {
 
+    if ( pfont ) ifile.font = pfont ;
+    if ( pglines ) ifile.pglines = pglines ;
+
     if ( nxtoptind < argc ) {
       ifnames = argv + nxtoptind ;
       if ( argv [ argc ] ) {
@@ -308,9 +328,6 @@ int main( int argc, char **argv)
     } else {
       err = msg ( "E3 missing input file name" ) ;
     }
-
-    if ( pfont ) ifile.font = pfont ;
-    if ( pglines ) ifile.pglines = pglines ;
 
     newIFILE ( &ovfile, ovfnames ) ;
 

@@ -1,4 +1,4 @@
-.TH EFAX 1 "February 1999" ""  ""
+.TH EFAX 1 "September 2005" ""  ""
 .UC 1
 .SH NAME
 efax \- send/receive faxes with Class 1, 2 or 2.0 fax modem
@@ -77,6 +77,14 @@ be the local telephone number in international format (for
 example "+1 800 555 1212").  This is passed to the remote fax
 machine.  Some fax machines may not accept characters other than
 numbers, space, and '+'.  
+
+.TP 9
+.B -n
+Force line buffering of stdout instead of block buffering.  This might
+be necessary if outputting UTF-8 to a terminal with translated text
+via NLS, since otherwise the terminal may be confronted (when the
+buffer is flushed when full) with only a partially formed UTF-8
+character.  Don't use this option unless you have to.
 
 .TP 9 
 .B -o \fIopt\fP 
@@ -207,6 +215,13 @@ T prefix for tone dialing or commas for delays.  If no file names
 are given the remote fax machine will be polled. If no -t
 argument is given efax will answer the phone and attempt to
 receive a fax.
+
+.TP 9
+.B -u
+use UTF-8 and not locale codeset (if different) for messages to stderr
+and stdout (see also the -n option) - this is useful if efax is used
+with a front-end which expects UTF-8 encoding of internationalized
+strings.
 
 .TP 9
 .B -v \fIstrng\fP

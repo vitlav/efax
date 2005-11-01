@@ -26,6 +26,19 @@
 
 */
 
+/* 
+    Internationalisation support added by Chris Vine September 2005,
+    including addition of the -n and -u options.
+
+    The following patches from http://shino.pos.to/linux/efax/ also
+    applied:
+
+      efax-0.9-nullptr.patch
+      efax-0.9a-frlen.patch
+
+    The patch efax-0.9-misc.patch from Fedora 2 has been applied.
+*/
+
 const char *Usage =
   "Usage:\n"
   "  %s [ option ]... [ -t num [ file... ] ]\n"
@@ -41,6 +54,8 @@ const char *Usage =
   "  -j str  send modem command ATstr after set fax mode\n"
   "  -k str  send modem command ATstr when done\n"
   "  -l id   set local identification to id\n"
+  "  -n      force line buffering of stdout instead of block buffering (necessary\n"
+  "          if outputting UTF-8 to a terminal with translated text via NLS)\n"
   "  -o opt  use protocol option opt:\n"
   "      0     use class 2.0 instead of class 2 modem commands\n"
   "      1     use class 1 modem commands\n"
@@ -57,6 +72,8 @@ const char *Usage =
   "  -q ne   ask for retransmission if more than ne errors per page\n"
   "  -r pat  save received pages into files pat.001, pat.002, ... \n"
   "  -s      share (unlock) modem device while waiting for call\n"
+  "  -u      use UTF-8 and not locale codeset (if different) for messages to\n"
+  "          stderr and stdout (see also -n option)\n"
   "  -v lvl  print messages of type in string lvl (ewinchamr)\n"
   "  -w      don't answer phone, wait for OK or CONNECT instead\n"
   "  -x fil  use uucp-style lock file fil\n"
@@ -65,11 +82,16 @@ const char *Usage =
   ;
 
 #include <ctype.h>		/* ANSI C */
-#include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#define ENABLE_NLS //#include <config.h>             /* For NLS */
+#ifdef ENABLE_NLS
+#include <locale.h>
+#include <libintl.h>
+#endif
 
 #include "efaxio.h"		/* EFAX */
 #include "efaxlib.h"
@@ -297,61 +319,174 @@ struct c2msgstruct
   {  -1,  -1, "" }
 } ;
 
-/* meaning of efax return codes */
+/* array for efax return codes */
 
-char *errormsg [] = {
-  "success",
-  "number busy or modem in use",
-  "unrecoverable error",
-  "invalid modem response",
-  "no response from modem",
-  "terminated by signal",
-  "internal error" } ;
+char *errormsg [7] ;
+
+/* array for frame names */
+
+static struct framenamestruct {  int code ;  char *name ; } 
+  framenames [] = {
+
+    {NSC,0}, /* these 3 frames must be first */
+    {CIG,0}, 
+    {DTC,0},
+    {NSF,0},
+    {CSI,0},
+    {DIS,0},
+    {NSS,0},
+    {TSI,0},
+    {DCS,0},
+
+    {CFR,0},
+    {FTT,0},
+
+    {MPS,0},
+    {EOM,0},
+    {EOP,0},
+
+    {PRI_MPS,0},
+    {PRI_EOM,0},
+    {PRI_EOP,0},
+
+    {MCF,0},
+    {RTP,0},
+    {PIP,0},
+    {RTN,0},
+    {PIN,0},
+
+    {CRP,0},
+    {DCN,0},
+    {0,0}
+  } ;
 
 /* Functions... */
+
+/* Provide dummy gettext() function if there is no internationalisation support */
+
+#ifndef ENABLE_NLS
+static const char *gettext ( const char *text )
+{
+  return text;
+}
+#endif
+
+/* Initialize errormsg array - meaning of efax return codes */
+
+void init_errormsg ( void )
+{
+  errormsg[0] = strdup ( gettext ( "success" ) );
+  errormsg[1] = strdup ( gettext ( "number busy or modem in use" ) );
+  errormsg[2] = strdup ( gettext ( "unrecoverable error" ) );
+  errormsg[3] = strdup ( gettext ( "invalid modem response" ) );
+  errormsg[4] = strdup ( gettext ( "no response from modem" ) );
+  errormsg[5] = strdup ( gettext ( "terminated by signal" ) );
+  errormsg[6] = strdup ( gettext ( "internal error" ) );
+}
+
+/* Initialize the framenames array */
+
+void init_framenames ( void )
+{
+
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "NSC" untranslated, but translate the remainder */
+  framenames[0].name =  strdup ( gettext ( "NSC - poller features" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "CIG" untranslated, but translate the remainder */
+  framenames[1].name =  strdup ( gettext ( "CIG - poller ID" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "DTC" untranslated, but translate the remainder */
+  framenames[2].name =  strdup ( gettext ( "DTC - poller capabilities" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "NSF" untranslated, but translate the remainder */
+  framenames[3].name =  strdup ( gettext ( "NSF - answering features" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "CSI" untranslated, but translate the remainder */
+  framenames[4].name =  strdup ( gettext ( "CSI - answering ID" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "DIS" untranslated, but translate the remainder */
+  framenames[5].name =  strdup ( gettext ( "DIS - answering capabilities" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "NSS" untranslated, but translate the remainder */
+  framenames[6].name =  strdup ( gettext ( "NSS - caller features" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "TSI" untranslated, but translate the remainder */
+  framenames[7].name =  strdup ( gettext ( "TSI - caller ID" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "DCS" untranslated, but translate the remainder */
+  framenames[8].name =  strdup ( gettext ( "DCS - session format" ) );
+
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "CFR" untranslated, but translate the remainder */
+  framenames[9].name =  strdup ( gettext ( "CFR - channel OK" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "FTT" untranslated, but translate the remainder */
+  framenames[10].name = strdup ( gettext ( "FTT - channel not OK" ) );
+
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "MPS" untranslated, but translate the remainder */
+  framenames[11].name = strdup ( gettext ( "MPS - not done" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "EOM" untranslated, but translate the remainder */
+  framenames[12].name = strdup ( gettext ( "EOM - not done, new format" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "EOP" untranslated, but translate the remainder */
+  framenames[13].name = strdup ( gettext ( "EOP - done" ) );
+
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "PRI-MPS" untranslated, but translate the remainder */
+  framenames[14].name = strdup ( gettext ( "PRI-MPS - not done, call operator" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "PRI-EOM" untranslated, but translate the remainder */
+  framenames[15].name = strdup ( gettext ( "PRI-EOM - not done, new format, call operator" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "PRI-EOP" untranslated, but translate the remainder */
+  framenames[16].name = strdup ( gettext ( "PRI-EOP - done, call operator" ) );
+
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "MCF" untranslated, but translate the remainder */
+  framenames[17].name = strdup ( gettext ( "MCF - page OK" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "RTP" untranslated, but translate the remainder */
+  framenames[18].name = strdup ( gettext ( "RTP - page OK, check channel" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "PIP" untranslated, but translate the remainder */
+  framenames[19].name = strdup ( gettext ( "PIP - page OK, call operator" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "RTN" untranslated, but translate the remainder */
+  framenames[20].name = strdup ( gettext ( "RTN - page not OK, check channel" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "PIN" untranslated, but translate the remainder */
+  framenames[21].name = strdup ( gettext ( "PIN - page not OK, call operator" ) );
+
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "CRP" untranslated, but translate the remainder */
+  framenames[22].name = strdup ( gettext ( "CRP - repeat command" ) );
+  /* Translator: this reports frame progress during reception/transmission
+     - leave "DCN" untranslated, but translate the remainder */
+  framenames[23].name = strdup ( gettext ( "DCN - disconnect" ) );
+
+  /* Translator: this reports an unknown frame type during reception/transmission */
+  framenames[24].name = strdup ( gettext ( "UNKNOWN" ) );
+
+}
 
 /* Return name of frame of type 'fr'. */
 
 char *frname ( int fr )
 {
-  static struct framenamestruct {  int code ;  char *name ; } 
-  framenames [] = {
+  struct framenamestruct *p ;
+  static int is_framenames_init = 0 ;
 
-    {NSC,"NSC - poller features"}, /* these 3 frames must be first */
-    {CIG,"CIG - poller ID"}, 
-    {DTC,"DTC - poller capabilities"},
-    {NSF,"NSF - answering features"},
-    {CSI,"CSI - answering ID"},
-    {DIS,"DIS - answering capabilities"},
-    {NSS,"NSS - caller features"},
-    {TSI,"TSI - caller ID"},
-    {DCS,"DCS - session format"},
+  if ( !is_framenames_init ) {
+    is_framenames_init = 1;
+    init_framenames();
+  }
 
-    {CFR,"CFR - channel OK"},
-    {FTT,"FTT - channel not OK"},
-
-    {MPS,"MPS - not done"},
-    {EOM,"EOM - not done, new format"},
-    {EOP,"EOP - done"},
-
-    {PRI_MPS,"PRI-MPS - not done, call operator"},
-    {PRI_EOM,"PRI-EOM - not done, new format, call operator"},
-    {PRI_EOP,"PRI-EOP - done, call operator"},
-
-    {MCF,"MCF - page OK"},
-    {RTP,"RTP - page OK, check channel"},
-    {PIP,"PIP - page OK, call operator"},
-    {RTN,"RTN - page not OK, check channel"},
-    {PIN,"PIN - page not OK, call operator"},
-
-    {CRP,"CRP - repeat command"},
-    {DCN,"DCN - disconnect"},
-    {0,0} },
-  *p ;
-  
-  for ( p=framenames ; p->code ; p++ )
+  for ( p=framenames ; p->code ; p++ )   /* framenames[24].code == 0 */
     if ( fr == p->code || ( fr & 0x7f ) == p->code) break ;
-  return p->code ? p->name : "UNKNOWN" ;
+  return p->name ;
 }
 
 /* Range-check capability. */
@@ -490,7 +625,7 @@ int mincap ( cap local, cap remote, cap session )
 
   if ( local[WD] != session[WD] || local[LN] > session[LN] || 
       local[DF] != session[DF] ) 
-    err = msg ("W3incompatible local and remote capabilities" ) ;
+    err = msg ("W3 %s", gettext ( "incompatible local and remote capabilities" ) );
 
   return err ;
 }
@@ -558,15 +693,19 @@ int rdpage ( IFILE *f, int dp, int *ppm, cap local, int *changed )
 int wrpage ( OFILE *f, int page )
 {
   int err=0 ;
+  char * message ;
 
   err = nextopage ( f, page ) ;
 
   if ( ! err && page == -1 ) {
     if ( remove ( f->cfname ) ) {
-      err = msg ( "ES2can't delete file %s:", f->cfname ) ; 
+      message = strdup2 ( "ES2 ", gettext ( "can't delete file %s:" ) ) ;
+      if ( message ) err = msg ( message, f->cfname ) ; 
     } else {
-      msg ( "Fremoved %s", f->cfname ) ; 
+      message = strdup2 ( "F ", gettext ( "removed file: %s" ) ) ; 
+      if ( message ) msg ( message, f->cfname ) ; 
     }
+    free ( message ) ;
   }
   
   return err ;
@@ -609,8 +748,10 @@ int send_data ( TFILE *mf, IFILE *f, int page, int pages,
     msg ( "W too many %%d escapes in header format string \"%s\"", header ) ;
   else
     sprintf ( headerbuf, header, page, pages, page, pages, page, pages ) ;
-  msg ("I header:[%s]", headerbuf ) ;
-      
+
+  /* Translator: "header" is a reference to the fax top header line */
+  msg ("I %s[%s]", gettext ( "header:" ), headerbuf ) ;
+
   done = err = ttymode ( mf, SEND ) ; 
 
   mf->start = time(0) ;
@@ -693,7 +834,7 @@ int send_data ( TFILE *mf, IFILE *f, int page, int pages,
   sendbuf ( mf, buf, p - buf, dcecps ) ;
   mf->bytes += p - buf ;
   
-  if ( noise ) msg ("W- characters received while sending" ) ;
+  if ( noise ) msg ("W- %s", gettext ( "characters received while sending" ) ) ;
 
   return err ;
 }
@@ -704,13 +845,14 @@ int end_data ( TFILE *mf, cap session, int ppm, int *good )
   int err=0, c ;
   uchar *p ;
   long dt, draintime ;
-
-  if ( ! ppm ) p = DLE_ETX ;
-  else if ( ppm == MPS ) p = "\020," ; 
-  else if ( ppm == EOM ) p = "\020;" ; 
-  else if ( ppm == EOP ) p = "\020." ; 
+  char *message;
+  
+  if ( ! ppm ) p = (uchar*) DLE_ETX ;
+  else if ( ppm == MPS ) p = (uchar*) "\020," ; 
+  else if ( ppm == EOM ) p = (uchar*) "\020;" ; 
+  else if ( ppm == EOP ) p = (uchar*) "\020." ; 
   else {
-    p = "" ;
+    p = (uchar*) "" ;
     err = msg ( "E2 can't happen (end_data)" ) ;
   }
 
@@ -727,12 +869,19 @@ int end_data ( TFILE *mf, cap session, int ppm, int *good )
 
   dt = time(0) - mf->start ;
 
-  msg ( "Isent %d+%d lines, %d+%d bytes, %d s  %d bps" , 
-       HDRSPCE, mf->lines-HDRSPCE, 
-       mf->bytes-mf->pad, mf->pad, (int) dt, (mf->bytes*8)/dt ) ;
+  /* Translator: this is reporting the outcome of fax transmission.  It gives the
+     number of lines sent, the number of bytes sent, the seconds taken and the
+     bit rate (bps) - the translated text must contain 6 "%d" formatting items */
+  message = strdup2 ( "I ",  gettext ( "sent %d+%d lines and %d+%d bytes, in %d secs at %d bps" ) );
+  if ( message ) {
+    msg ( message , 
+	  HDRSPCE, mf->lines-HDRSPCE, 
+	  mf->bytes-mf->pad, mf->pad, (int) dt, (mf->bytes*8)/dt ) ;
+    free ( message ) ;
+  }
 
   if ( mf->bytes / (dt+1) > cps[session[BR]] )
-    msg ( "E flow control did not work" ) ;
+    msg ( "E %s", gettext ( "flow control did not work" ) );
 
   if ( ! err ) err = ttymode ( mf, COMMAND ) ;
 
@@ -763,11 +912,16 @@ int readfaxruns ( TFILE *f, DECODER *d, short *runs, int *pels )
 	c = tgetd ( f, TO_CHAR ) ;
 
 	rd_state = ( rd_state & rd_allowed[c] ) ?
-	  ( ( rd_state & rd_nexts[c] ) ? rd_state <<= 1 : rd_state ) : 
+	  ( ( rd_state & rd_nexts[c] ) ? rd_state << 1 : rd_state ) : 
 	  RD_BEGIN ;
 
-	if ( rd_state == RD_END )
-	  msg ( "W+ modem response in data" ) ; 
+	if ( rd_state == RD_END ) {
+
+	  /* Translator: I am not sure what this means - I think
+	     that the modem has given an unexpected response while
+	     receiving date */
+	  msg ( "W+ %s", gettext ( "modem response in data" ) ) ;
+	}
 
 	if ( c < 0 )  {
 	  x = ( x << 15 ) | 1 ; shift += 15 ;  /* EOL pad at EOF */
@@ -785,7 +939,7 @@ int readfaxruns ( TFILE *f, DECODER *d, short *runs, int *pels )
   d->x = x ; d->shift = shift ; d->tab = tab ; /* save state */
   f->rd_state = rd_state ;
 
-  if ( p >= maxp ) msg ( "Wrun length buffer overflow" ) ;
+  if ( p >= maxp ) msg ( "W %s", gettext ( "run length buffer overflow" ) ) ;
 
   /* combine make-up and terminating codes and remove +1 offset
      in run lengths */
@@ -828,6 +982,7 @@ int receive_data ( TFILE *mf, OFILE *f, cap session, int *nerr )
   int pwidth = pagewidth [ session [ WD ] ] ;
   short runs [ MAXRUNS ] ;
   DECODER d ;
+  char *message ;
 
   if ( ! f || ! f->f ) {
     msg ( "E2 can't happen (writeline)" ) ;
@@ -847,16 +1002,16 @@ int receive_data ( TFILE *mf, OFILE *f, cap session, int *nerr )
       lines++ ;
     }
     if ( ferror ( f->f ) ) {
-      err = msg ("ES2file write:") ;
-      tput ( mf, CAN_STR, 1 ) ;
-      msg ("Wdata reception CANcelled") ;
-    } 
+      err = msg ( "ES2 %s", gettext ( "file write:" ) ) ;
+      tput ( mf, (uchar*) CAN_STR, 1 ) ;
+      msg ("W %s", gettext ( "CAN: data reception cancelled" ) ) ;
+    }
   }
   
   if ( *nerr ) {
     if ( *nerr > MAXERRPRT ) msg ("R-+ ....." ) ;
-    msg ("R-  : reception errors" ) ;
-    msg ("W- %d reception errors", *nerr ) ;
+    msg ("R-  : %s", gettext ( "reception errors" ) ) ;
+    msg ("W- %d %s", *nerr , gettext ( "reception errors" ) ) ;
   }
 
   if ( nr == EOF ) { 
@@ -865,7 +1020,12 @@ int receive_data ( TFILE *mf, OFILE *f, cap session, int *nerr )
     err = 1 ;			/* DLE-ETX without RTC - should try again */
   }
 
-  msg ( "I- received %d lines, %d errors", lines, *nerr ) ;
+  /* Translator: this must have two "%d" formatting items in the translated string */
+  message = strdup2 ( "I- ", gettext ( "received %d lines with %d errors" ) ) ;
+  if ( message ) {
+    msg ( message, lines, *nerr ) ;
+    free ( message ) ;
+  }
 
   return err ;
 }
@@ -877,6 +1037,7 @@ int puttrain ( TFILE *f, char *s, int n  )
 {
   int i, m, err=0 ;
   uchar buf [ MINWRITE ] = { 0 } ;
+  char *message ;
 
 #ifdef ADDTCFRTC
   ENCODER e ;
@@ -907,11 +1068,16 @@ int puttrain ( TFILE *f, char *s, int n  )
     sendbuf ( f, buf, p - buf, 0 ) ;
 #endif
 
-    tput ( f, DLE_ETX, 2 ) ; 
+    tput ( f, (uchar*) DLE_ETX, 2 ) ; 
 
 
     ckcmd ( f, &err, 0, TO_DRAIN_D, OK ) ;
-    msg ( "I- sent TCF - channel check of %d bytes", n ) ;
+
+    message = strdup2 ( "I- ", gettext ( "sent TCF - channel check of %d bytes" ) ) ;
+    if ( message ) {
+      msg ( message, n ) ;
+      free ( message ) ;
+    }
 
     ttymode ( f, COMMAND ) ;
   }
@@ -928,6 +1094,7 @@ int puttrain ( TFILE *f, char *s, int n  )
 int gettrain ( TFILE *f, char *s, int n, int *good ) 
 { 
   int err=0, c, i=0, maxrunl=0, runl=0 ;
+  char * message ;
   
   ckcmd ( f, &err, s, T2, CONNECT ) ;
   
@@ -942,7 +1109,7 @@ int gettrain ( TFILE *f, char *s, int n, int *good )
       }
     
     if ( c == EOF )
-      err = msg ( "E3timed out during training check data" ) ;
+      err = msg ( "E3 %s", gettext ( "timed out during training check data" ) ) ;
     else
       ckcmd ( f, &err, 0, TO_RTCMD, NO ) ;
     
@@ -953,8 +1120,17 @@ int gettrain ( TFILE *f, char *s, int n, int *good )
   if ( good ) *good = !err && maxrunl > n ;
 
   if ( !err ) {
-    msg ( "I- received TCF - channel check (%sOK: run of %d in %d)", 
-   	 maxrunl > n ? "" : "not ", maxrunl, i ) ;
+    if ( maxrunl > n ) {
+      message = strdup2 ( "I- ",
+			  gettext ( "received TCF - channel check (OK: run of %d in %d)" ) ) ;
+    } else {
+      message = strdup2 ( "I- ",
+			  gettext ( "received TCF - channel check (not OK: run of %d in %d)" ) ) ;
+    }
+    if ( message ) {
+      msg ( message, maxrunl, i ) ;
+      free ( message ) ;
+    }
   }
 
   return err ;
@@ -1004,15 +1180,15 @@ int putframe ( int type, uchar *buf, int len, TFILE *f, int t )
   if ( ! err ) {
 
     if ( ! buf[len+2] ) {
-      msg ( "Wlast byte of frame is NULL" ) ;
+      msg ( "W %s", gettext ( "last byte of frame is NULL" ) ) ;
     }
 
     /* ttymode ( f, SEND ) ; */
     sendbuf ( f, buf, len+3, 0 ) ;
-    tput ( f, DLE_ETX, 2 ) ; 
+    tput ( f, (uchar*) DLE_ETX, 2 ) ; 
     /* ttymode ( f, COMMAND ) ; */
 
-    logfr ( "sent", frname ( buf [ 2 ] ), buf, len+3 ) ;
+    logfr ( gettext ( "sent" ), frname ( buf [ 2 ] ), buf, len+3 ) ;
 
     ckcmd ( f, &err, 0, TO_DRAIN_H, ( type & MORE_FR ) ? CONNECT : OK ) ;
   }
@@ -1043,14 +1219,14 @@ int fixframe ( uchar *buf, int n, TFILE *f )
     for ( i=n; i >= 1 ; i-- ) 
       buf[i]=buf[i-1] ;
     buf[i] = 0xff ;
-    msg ("W HDLC frame missing initial 0xff" ) ;
+    msg ("W %s", gettext ( "HDLC frame missing initial 0xff" ) ) ;
     n++ ;
   }
 
   if ( buf[1] == 0x03 || buf[1] == 0x13 ) {
     for ( i=0 ; i < n ; i++ ) 
       buf[i]=normalbits[buf[i]] ;
-    msg ("W bit-reversed HDLC frame, reversing bit order" ) ;
+    msg ("W %s", gettext ( "bit-reversed HDLC frame, reversing bit order" ) ) ;
     f->ibitorder = f->ibitorder == normalbits ? reversebits : normalbits ;
   }
 
@@ -1064,13 +1240,14 @@ int fixframe ( uchar *buf, int n, TFILE *f )
 int receive_frame_data ( TFILE *f, uchar *buf, int n, int *len )
 {
   int err=0, c, i ;
+  char * message;
 
   for ( i=0 ; ( c = tgetd ( f, T3S ) ) >= 0  ; i++ )
     if ( i < n ) buf[ i ] = c ;
   
   if ( c == EOF ) {
 
-    err = msg ( "E3timed out reading frame data" ) ;
+    err = msg ( "E3 %s", gettext ( "timed out reading frame data" ) ) ;
 
   } else {
     
@@ -1080,21 +1257,26 @@ int receive_frame_data ( TFILE *f, uchar *buf, int n, int *len )
       break ;
     case ERROR:
     case NO:
-      err = msg ( "W1frame error" ) ;
+      err = msg ( "W1 %s", gettext ( "frame error" ) ) ;
       break ;
     case EOF:
-      err = msg ( "E3no response after frame data" ) ;
+      err = msg ( "E3 %s", gettext ( "no response after frame data" ) ) ;
       break ;
     default:
-      err = msg ( "E3wrong response after frame data" ) ;
+      err = msg ( "E3 %s", gettext ( "wrong response after frame data" ) );
       break ;
     }
 
   }
 
-  if ( i >= n ) 
-    err = msg ( "E3frame too long (%d, > %d max bytes)", i, n ) ;
-  
+  if ( i >= n ) {
+    message = strdup2 ( "E3 ", gettext ( "frame too long (%d, > %d max bytes)" ) ) ;
+    if ( message ) {
+      err = msg ( message, i, n ) ;
+      free ( message ) ;
+    }
+  }
+
   if ( len ) *len = i ;
 
   return err ;
@@ -1123,10 +1305,13 @@ int receive_frame_data ( TFILE *f, uchar *buf, int n, int *len )
 
 int getfr ( TFILE *mf, uchar *buf, int getcmd )
 {
-  int err=0, frame=0, frlen, c, t ;
+  /* frlen should be initialized to be zero */
+  /* informed from Steven Doerfler <steven@lugaru.com> */
+  int err=0, frame=0, frlen=0, c, t ;
   char remoteid [ IDLEN + 1 ] ;
   time_t start ;
   uchar *fif=buf+3 ;
+  char * message ;
   
   start = 10*time(0) ;
   
@@ -1144,7 +1329,7 @@ int getfr ( TFILE *mf, uchar *buf, int getcmd )
   
   switch ( c ) {
   case EOF:			/* time out */
-    tput ( mf, CAN_STR, 1 ) ;
+    tput ( mf, (uchar*) CAN_STR, 1 ) ;
     ckcmd ( mf, 0, 0, TO_ABRT, OK ) ;
     err = 1 ;
     break ;
@@ -1152,22 +1337,27 @@ int getfr ( TFILE *mf, uchar *buf, int getcmd )
     err = 1 ;
     break ;
   case MODULATION:		/* data carrier (or DHS) */
-    return -msg ( "W-2 wrong carrier" ) ;
+    return -msg ( "W-2 %s", gettext ( "wrong carrier" ) ) ;
     break ;
   case CONNECT:			/* frame */
     break ;
   default:			/* shouldn't happen */
-    err = msg ( "E3wrong response to receive-frame command" ) ;
+    err = msg ( "E3 %s", gettext ( "wrong response to command to receive a frame" ) ) ;
     break ;
   }
   
   if ( ! err ) 
     err = receive_frame_data ( mf, buf, MAXFRLEN, &frlen ) ;
   
-  if ( ! err && frlen < 3 ) 
-    err = msg ( "E3received short frame (%d bytes)", frlen ) ;
+  if ( ! err && frlen < 3 ) {
+    message = strdup2 ( "E3 ", gettext ( "received short frame (%d bytes)" ) ) ;
+    if ( message ) {
+      err = msg ( message, frlen ) ;
+      free ( message ) ;
+    }
+  }
 
-  logfr ( "received", frname ( buf [ 2 ] ), buf, frlen ) ;
+  logfr ( gettext ( "received" ), frname ( buf [ 2 ] ), buf, frlen ) ;
 
   if ( ! err ) {
 
@@ -1185,7 +1375,7 @@ int getfr ( TFILE *mf, uchar *buf, int getcmd )
     case CSI:
     case TSI:
       revcpy ( fif , (uchar*) remoteid ) ;
-      msg ( "I- remote ID -> %*.*s", IDLEN, IDLEN, remoteid ) ;
+      msg ( "I- %s %*.*s", gettext ( "The remote ID is" ), IDLEN, IDLEN, remoteid ) ;
       goto Enter ;
     }
 
@@ -1216,7 +1406,7 @@ int c1sndrcv (
   int rxdislen, ppm, try=0, pagetry=0, retry=0, remtx=0, remrx=0 ;
   int writepending=0, dp=0 ;
   cap remote = { DEFCAP }, session = { DEFCAP } ;
-  char *fname=0 ;
+  char *fname=0, *message ;
   uchar buf [ MAXFRLEN ], *fif=buf+3 ;
 
   if ( ! calling ) goto RX ;
@@ -1230,12 +1420,12 @@ int c1sndrcv (
   frame = getfr ( mf, buf, T1 ) ;
   
   if ( frame <= 0 ) {
-    err = msg ( "E3no answer from remote fax" ) ;
+    err = msg ( "E3 %s", gettext ( "no answer from remote fax" ) ) ;
     goto B ;
   }
   
   if ( frame != DIS && frame != DTC ) {
-    msg ( "W2 can't open page" ) ;
+    msg ( "W2 %s", gettext ( "can't open page" ) ) ;
     goto C ;
   }
 
@@ -1251,21 +1441,32 @@ int c1sndrcv (
     remrx = fif[1] & 0x40 ;
   }
 
-  msg ( "N remote has %sdocument(s) to send, and can %sreceive",
-       remtx ? "" : "no ", remrx ? "" : "not " ) ;
+  if ( remtx ) {
+    if (remrx ) {
+      msg ( "N %s", gettext ( "remote has one or more documents to send and can receive" ) ) ;
+    } else {
+      msg ( "N %s", gettext ( "remote has one or more documents to send and cannot receive" ) ) ;
+    }
+  } else {
+    if (remrx ) {
+      msg ( "N %s", gettext ( "remote has no documents to send and can receive" ) ) ;
+    } else {
+      msg ( "N %s", gettext ( "remote has no documents to send and cannot receive" ) ) ;
+    }
+  }
 
   if ( pages > 0 ) {
-    if ( ! remrx ) msg ( "W remote cannot receive, trying anyways" ) ; 
+    if ( ! remrx ) msg ( "W %s", gettext ( "remote cannot receive, trying anyways" ) ) ;
     goto D ;
   } else {
-    if ( ! remtx ) msg ( "W remote has nothing to send, trying anyways" )  ; 
+    if ( ! remtx ) msg ( "W %s", gettext ( "remote has nothing to send, trying anyways" ) ) ;
     goto R ;
   }
 
  D:				/* send DCS */
 
   if ( rdpage ( inf, dp, &ppm, local, 0 ) ) {
-    err = msg ( "E2can't open page" ) ;
+    err = msg ( "E2 %s", gettext ( "can't open page" ) ) ;
     goto B ;
   }
 
@@ -1312,23 +1513,31 @@ int c1sndrcv (
     else goto A ;
 
   case FTT:
-    msg ( "I channel not usable at %d bps", 8*cps[session[BR]] ) ;
+    message = strdup2 ( "I ", gettext ( "channel not usable at %d bps" ) ) ;
+    if ( message ) {
+      msg ( message, 8*cps[session[BR]] ) ;
+      free ( message ) ;
+    }
+
     remote[BR] = fallback[session[BR]] ;
     if ( remote[BR] >= 0 ) goto D_2 ;
-    else { err = msg ( "E2 channel not usable at lowest speed" ) ; goto C ; }
+    else {
+      err = msg ( "E2 %s", gettext ( "channel not usable at lowest speed" ) ) ;
+      goto C ;
+    }
 
   case CFR:
     goto I_2 ;
 
   default:
-    err = msg ( "E3 invalid response to DCS (0x%02x)", frame ) ;
+    err = msg ( "E3 %s", gettext ( "invalid response to DCS" ) ) ;
     goto C ;
   }    
 
  I:				/* send a page */
 
   if ( rdpage ( inf, dp, &ppm, local, 0 ) ) {
-    err = msg ( "E2can't open page" ) ;
+    err = msg ( "E2 %s", gettext ( "can't open page" ) ) ;
     goto B ;
   }
 
@@ -1374,7 +1583,13 @@ int c1sndrcv (
   case RTP:
   case PIP:
     fname = inf->page->fname ;
-    if ( fname ) msg ( "Isent -> %s", fname ) ;
+    if ( fname ) {
+      message = strdup2 ( "I ", gettext ( "sent page %s" ) ) ;
+      if ( message ) {
+	msg ( message, fname ) ;
+	free ( message ) ;
+      }
+    }
     pagetry=0 ;
     page++ ;
     dp = 1 ;
@@ -1385,7 +1600,7 @@ int c1sndrcv (
     retry = pagetry < NTXRETRY ;
     break ;
   default:  
-    err = msg ( "E3invalid post-page response (0x%02x)", frame ) ;
+    err = msg ( "E3 %s", gettext ( "invalid post-page response" ) );
     goto C ;
   }
   
@@ -1429,7 +1644,7 @@ int c1sndrcv (
   }  
 
  E:				/* ignore PIN and PIP */
-  msg ( "W interrupt request ignored" ) ;
+  msg ( "W %s", gettext ( "interrupt request ignored" ) ) ;
   try=0 ;
   goto A ;
 
@@ -1478,7 +1693,10 @@ int c1sndrcv (
   if ( frame < 0 ) {
     if ( frame == -2 ) goto getdata ; /* data carrier detected */
     if ( last == EOM ) goto R ; 
-    else { err = msg ("E3 timed out waiting for command" ) ; goto B ; }
+    else {
+      err = msg ("E3 %s", gettext ( "timed out waiting for command" ) ) ;
+      goto B ;
+    }
   }
   
  F_2:
@@ -1519,7 +1737,13 @@ int c1sndrcv (
     switch ( receive_data ( mf, outf, session, &nerr ) ) {
     case 0:
       good = nerr < maxpgerr ;
-      msg ( "I-received -> %s", outf->cfname ) ;
+      /* Translator: the %s formatting item refers to the file name to which
+	 a received fax page has been saved */
+      message = strdup2 ("I- ", gettext ( "page saved to %s" ) ) ;
+      if (message) {
+	msg ( message, outf->cfname ) ;
+	free ( message ) ;
+      }
       writepending=1 ;		/* ppm follows immediately, don't write yet */
       rxpage++ ;
       break ;
@@ -1550,13 +1774,13 @@ int c1sndrcv (
     goto B ;
     
   default:
-    err = msg ( "E3 unrecognized command" ) ;
+    err = msg ( "E3 %s", gettext ( "unrecognized command" ) ) ;
     goto B ;
 
   }
 
  C_timeout:
-  err = msg ( "E3 no command/response from remote" ) ;
+  err = msg ( "E3 %s", gettext ( "no command or response from remote" ) ) ;
 
  C:
   putframe ( DCN, buf, 0, mf, -1 ) ;
@@ -1579,9 +1803,15 @@ int c1sndrcv (
 int gethsc ( int *hsc, int *perr )
 {
   int err=0, i ;
+  char *message ;
   if ( sresponse ( "+FHNG:", hsc ) || sresponse ( "+FHS:", hsc ) ) {
     if ( hsc && *hsc > 0 ) {
-      err = msg ( "E2abnormal termination (code %d)", *hsc ) ;
+      message = strdup2 ("E2 ", gettext ( "abnormal termination (code %d)" ) ) ;
+      if ( message ) {
+	err = msg ( message, *hsc ) ;
+	free ( message ) ;
+      }
+
       for ( i=0 ; c2msg[i].min >= 0 ; i++ ) {
 	if ( *hsc >= c2msg[i].min && *hsc <= c2msg[i].max ) {
 	  msg ( "E %s", c2msg[i].msg ) ;
@@ -1621,19 +1851,25 @@ void getc2dcs ( cap session )
 void getstartc ( TFILE *mf )
 {
   int c, noise ;
+  char * message ;
   
   for ( noise=0 ; ( c = tgetc ( mf, TO_C2X ) ) != XON && c != DC2 ; noise++ ) {
     if ( c == EOF ) {
-      msg ( "Wno XON/DC2 received after CONNECT") ;
+      msg ( "W %s", gettext ( "no XON/DC2 received after CONNECT" ) ) ;
       break ;
     } else { 
-      msg ( "W-+%s", cname ( c ) ) ; 
+      msg ( "W-+ %s", cname ( c ) ) ; 
       noise++ ; 
     }
   }
   
-  if ( noise )
-    msg ( "W  : %d characters received while waiting to send", noise ) ;
+  if ( noise ) {
+    message = strdup2 ( "W  : ", gettext ( "%d characters received while waiting to send" ) ) ;
+    if ( message ) {
+      msg ( message, noise ) ;
+      free ( message ) ;
+    }
+  }
 }  
 
 
@@ -1663,7 +1899,7 @@ int c2sndrcv (
   int err=0, done=0, page, pagetry, nerr, c, dp=0 ;
   int ppm=0, good, hsc, changed ;
   int remtx=0 ;
-  char *fname=0 ;
+  char *fname=0, *message ;
   cap session = { 0,0,0,0, 0,0,0,0 } ;
   char buf [ CMDBUFSIZE ] ;
 
@@ -1671,7 +1907,7 @@ int c2sndrcv (
 
   if ( sresponse ( "+FPO", 0 ) ) {
     remtx = 1 ;
-    msg ( "N remote has document(s) to send." ) ;
+    msg ( "N %s", gettext ( "remote has one or more documents to send." ) ) ;
   }
 
   if ( calling ) {
@@ -1738,17 +1974,23 @@ int c2sndrcv (
 	  good &= 1 ;		/* odd values mean received OK */
 	} else {			/* no +FPTS and +FHNG probably NG */
 	  good = gethsc ( 0, 0 ) ? 0 :  
-	    msg ( "W1no +FPTS response, assumed received" ) ;
+	    msg ( "W1 %s",
+		  gettext ("no +FPTS response obtained, it is assumed that fax was received" ) ) ;
 	}
       }
-
     }
     
     if ( noretry ) good = 1;
     
     if ( good ) {
       fname = inf->page->fname ;
-      if ( fname ) msg ( "Isent -> %s", fname ) ;
+      if ( fname ) {
+	message = strdup2 ( "I ", gettext ( "sent page %s" ) ) ;
+	if ( message ) {
+	  msg ( message, fname ) ;
+	  free ( message ) ;
+	}
+      }
       pagetry=0 ;
       page++ ;
       dp = 1 ;
@@ -1759,7 +2001,7 @@ int c2sndrcv (
     } else {
       dp = 0 ;
       if ( pagetry >= NTXRETRY )
-	err = msg ( "E2too many page send retries" ) ;
+	err = msg ( "E2 %s", gettext ( "too many page send retries" ) ) ;
     }
 
     if ( gethsc ( &hsc, &err ) )  done=1 ;
@@ -1802,7 +2044,13 @@ int c2sndrcv (
 
 	if ( receive_data ( mf, outf, session, &nerr ) == 0 ) {
 	  good = nerr < maxpgerr ;
-	  msg ( "I-received -> %s", outf->cfname ) ;
+	  /* Translator: the %s formatting item refers to the file name to which
+	     a received fax page has been saved */
+	  message = strdup2 ( "I- ", gettext ( "page saved to %s" ) ) ;
+	  if ( message ) {
+	    msg ( message, outf->cfname ) ;
+	    free ( message ) ;
+	  }
 	} else { 
 	  good = 0 ;
 	}
@@ -1817,7 +2065,7 @@ int c2sndrcv (
 	}
 	
 	if ( ! good ) {
-	  msg ( "Wreception errors" ) ;
+	  msg ( "W %s", gettext ( "reception errors" ) ) ;
 	  ckcmd ( mf, 0, c20 ? "+FPS=2" : "+FPTS=2",  T3S, OK ) ;
 	  if ( gethsc ( &hsc, &err ) ) continue ;
 	}
@@ -1831,7 +2079,7 @@ int c2sndrcv (
 
       default:
 	wrpage ( outf, -1 ) ;	/* oops */
-	err = msg ( "E3receive (+FDR) command failed") ;
+	err = msg ( "E3 %s", gettext ( "receive (+FDR) command failed" ) ) ;
 	break ;
       }
     }
@@ -1855,30 +2103,38 @@ int c2sndrcv (
 int dial ( TFILE *f, char *s, int nowait )
 {
   int err=0, hsc=-1 ;
-  char c, dsbuf [ 128 ], *p ;
+  char c, dsbuf [ 128 ], *p, *message ;
 
   sprintf ( dsbuf, nowait ? "D%.126s;" : "D%.127s" , s ) ;
-  msg ( "Idialing %s", dsbuf+1 ) ;
+  message = strdup2 ( "I ", gettext ( "dialing %s" ) ) ;
+  if ( message ) {
+    msg ( message, dsbuf+1 ) ;
+    free ( message ) ;
+  }
 
   c = cmd ( f, dsbuf, TO_A ) ;
 
   if ( ( p = sresponse ( "+FCSI:", 0 ) ) != 0 ||
        ( p =  sresponse ( "+FCI:", 0 ) ) != 0 ) {
-    msg ( "I- remote ID -> %s", p ) ;
+    message = strdup2 ( "I- ", gettext ( "The remote ID is %s" ) ) ;
+    if ( message ) {
+      msg ( message, p ) ;
+      free ( message ) ;
+    }
   }
 
   if ( nowait && c == OK ) {
-    msg ( "Icalled" ) ;
+    msg ( "I %s", gettext ( "called" ) ) ;
     nframes = 1 ;
   } else if ( c1 && c == CONNECT ) {
-    msg ( "Iconnected" ) ; 
+    msg ( "I %s", gettext ( "connected" ) ) ; 
     nframes = 0 ;
   } else if ( !c1 && c == OK ) {
-    msg ( "Iconnected" ) ; 
+    msg ( "I %s", gettext ( "connected" ) ); 
   } else if ( c ==  BUSY ) {
-    err = msg ( "W1number is busy" ) ; 
+    err = msg ( "W1 %s", gettext ( "number is busy" ) ) ;
   } else {
-    err = msg ( "E2dial command failed" ) ;
+    err = msg ( "E2 %s", gettext ( "dial command failed" ) ) ;
   }
 
   gethsc ( &hsc, err ? 0 : &err ) ;
@@ -1947,6 +2203,7 @@ int answer ( TFILE *f, char **lkfile,
   int err=0, c ;
   int crate=19200, hsc=-1, i ;
   enum connectmode mode=NONE ;
+  char * message;
 
   if ( ! err && share ) {
     err = ttymode ( f, COMMAND ) ;
@@ -1955,16 +2212,16 @@ int answer ( TFILE *f, char **lkfile,
   }
   
   if ( ! err && wait ) {
-    msg ( "Iwaiting for activity") ;
+    msg ( "I %s", gettext ( "waiting for activity") ) ;
     tdata ( f, -1 ) ;
-    msg ( "Iactivity detected") ;
+    msg ( "I %s", gettext ( "activity detected") ) ;
   }
   
   if ( ! err && share ) {
     msleep ( 500 ) ;		/* let other programs lock port  */
     err = lockall ( lkfile, 1 ) ;
     if ( err )
-      err = msg ( "W1can't answer: can't lock device" ) ;
+      err = msg ( "W1 %s", gettext ( "can't answer: can't lock device" ) );
     else
       err = ttymode ( f, COMMAND ) ; /* in case it was changed silently */
   }
@@ -1983,34 +2240,46 @@ int answer ( TFILE *f, char **lkfile,
       if ( getty && *getty ) {
 	char buf [ MAXGETTY ] ;
 	if ( ckfmt ( getty, 6 ) ) {
-	  err = msg ( "E3 too many %%d escapes in command (%s)", getty ) ;
+	  message = strdup2 ( "E3 ", gettext ( "too many %%d escapes in command (%s)" ) ) ;
+	  if ( message ) {
+	    err = msg ( message, getty ) ;
+	    free ( message ) ;
+	  }
 	} else {
 	  sprintf ( buf, getty, crate, crate, crate, crate, crate, crate ) ;
-	  msg ( "Iexec'ing /bin/sh -c \"%s\"" , buf ) ;
+	  message = strdup2 ( "I ", gettext ( "executing command /bin/sh -c %s" ) ) ;
+	  if ( message ) {
+	    msg ( message, buf ) ;
+	    free ( message ) ;
+	  }
 	  execl ( "/bin/sh" , "sh" , "-c" , buf , (void*) 0 ) ; 
-	  err = msg ( "ES2exec failed:" ) ;
+	  err = msg ( "ES2 %s", gettext ( "exec() call failed:" ) ) ;
 	}
       } else {
-	err = msg ( "E2no getty command defined for data call" ) ;
+	err = msg ( "E2 %s", gettext ( "no getty command defined for data call" ) ) ;
       }
       break ; 
     case FAXMODE :
       nframes = 0 ;
-      msg ( "Ifax call answered") ;
+      msg ( "I %s", gettext ( "fax call answered") ) ;
       break ;
     case VOICEMODE :
-      msg ( "Ivoice call answered") ;
+      msg ( "I %s", gettext ( "voice call answered") );
       if ( vcmd && *vcmd ) {
 	char buf [ MAXGETTY ] ;
 	if ( ckfmt ( vcmd, 6 ) ) {
 	} else {
 	  sprintf ( buf, vcmd, f->fd, f->fd, f->fd, f->fd, f->fd, f->fd ) ;
-	  msg ( "Iexec'ing /bin/sh -c \"%s\"" , buf ) ;
+	  message = strdup2 ( "I ", gettext ( "executing command /bin/sh -c %s" ) ) ;
+	  if ( message ) {
+	    msg ( message, buf ) ;
+	    free ( message ) ;
+	  }
 	  execl ( "/bin/sh" , "sh" , "-c" , buf , (void*) 0 ) ; 
-	  err = msg ( "ES2exec failed:" ) ;
+	  err = msg ( "ES2 %s", gettext ( "exec() call failed:" ) ) ;
 	}
       } else {
-	err = msg ( "E2no voice command defined for voice call" ) ;
+	err = msg ( "E2 %s", gettext ( "no voice command defined for voice call" ) ) ;
       }
       break ; 
     case NONE:
@@ -2023,7 +2292,7 @@ int answer ( TFILE *f, char **lkfile,
 	wait = 0 ;
 	acmd = ANSCMD ;
       } else {
-	err = msg ( "E3unable to answer call") ;
+	err = msg ( "E3 %s", gettext ( "unable to answer call") ) ;
       }
       break ;
     default:
@@ -2049,6 +2318,7 @@ int modem_init ( TFILE *mf, cap c, char *id,
   char buf [ CMDBUFSIZE ], model [ CMDBUFSIZE ] = "" ;
   char **p, *q, *modelq [2][4] = { { "+FMFR?", "+FMDL?", 0 }, 
 				   { "+FMI?", "+FMM?", "+FMR?", 0 } } ;
+  char *message;
 
 
   /* diasable command echo and get firmware revision */
@@ -2064,12 +2334,12 @@ int modem_init ( TFILE *mf, cap c, char *id,
 
   if ( ! err && ! c1 && !c2 && ! c20 ) {
     if ( cmd ( mf, "+FCLASS=?", t ) != OK ) {
-      err = msg ("E3 modem does not support fax" ) ;
+      err = msg ("E3 %s", gettext ( "modem does not support fax" ) ) ;
     } else {
       if ( strinresp ( "2.0" ) ) c20 = 1 ;
       else if ( strinresp ( "2" ) ) ;
       else if ( strinresp ( "1" ) ) c1 = 1 ;
-      else err = msg ("E3 can't determine fax modem class support" ) ;
+      else err = msg ("E3 %s", gettext ( "can't determine fax modem class support" ) ) ;
       if ( strstr ( model, "Sportster" ) ) { /* USR Sporsters are buggy */
 	c1 = 1 ; 
 	c2 = c20 = 0 ;
@@ -2092,13 +2362,20 @@ int modem_init ( TFILE *mf, cap c, char *id,
   
     if ( ! c1 && strstr ( model, "Multi-Tech" ) ) {
       *preverse = 0 ;
-      msg ("I Multi-Tech bit order set" ) ;
+      /* Translator: "Multi-Tech" is a make of modem */
+      msg ("I %s", gettext ( "Multi-Tech bit order set" ) ) ;
     }
   }
 
-  if ( ! err ) 
-    msg ( "I using %sin class %s", model, c1 ? "1" : c20 ? "2.0" : "2" ) ;
-
+  if ( ! err ) {
+    /* Translator: the first string is the model of modem and the
+       second is the fax modem class in which it operates */
+    message = strdup2 ( "I ", gettext ( "using %sin class %s" ) ) ;
+    if ( message ) {
+      msg ( message, model, c1 ? "1" : c20 ? "2.0" : "2" ) ;
+      free ( message ) ;
+    }
+  }
   /* get maximum modem speed if not already set (Class 1 only) */
 
   if ( ! err && c1 && ! capsset ) {
@@ -2173,14 +2450,27 @@ int locked = 0 ;		/* modem locked */
 
 int cleanup ( int err )
 {
+  char * message;
 				/* log names of files not sent */
-  logifnames ( &ifile, "I failed -> %s" ) ;
+
+  /* Translator: this specifies a file (a fax page) the sending of which has failed
+     (%s represents the file name of the page) */
+  message = strdup2 ( "I ", gettext ( "failed page %s") ) ;
+  if ( message ) {
+    logifnames ( &ifile, message ) ;
+    free ( message ) ;
+  }
 
   if ( ! locked && faxdev.fd >= 0 )
     end_session ( &faxdev, icmd[2], lkfile, err != 4 ) ;
-  
-  msg ( "Idone, returning %d (%s)", err, 
-	errormsg [ err >= 0 && err <= 5 ? err : 6 ] ) ;
+
+  /* Translator: %s represents a string reporting whether the
+     fax operation failed or succeeded */
+  message = strdup2 ( "I ", gettext ( "finished - %s" ) ) ;
+  if ( message ) {
+    msg ( message, errormsg [ err >= 0 && err <= 5 ? err : 6 ] ) ;
+    free ( message ) ;
+  }
 
   return err ;
 }
@@ -2227,20 +2517,50 @@ int main( int argc, char **argv)
   int pages = 0 ;
   char *phnum="", *ansfname = DEFPAT ;
   char fnamepat [ EFAX_PATH_MAX ] ;
-  
+
+  int index ;
+  char *result, *message;
+
+  /* As efax only accepts one option per argument, it is easy to test for '-u' and -n */
+  for ( index = 0 ; index < argc ; index++ ) {
+    if ( *( argv [ index ] ) == '-' ) {
+      if ( *( argv [ index ] + 1 ) == 'u' ) use_utf8 = 1 ;
+      else if ( *( argv [ index ] + 1 ) == 'n' ) line_buffered = 1 ;
+    }
+    if ( use_utf8 && line_buffered ) break ;
+  }
+
+  /* set up internationalization */
+#ifdef ENABLE_NLS
+  /* use the efax-gtk translation files */
+  bindtextdomain( "efax-gtk", "/usr/share/locale" ) ;
+  if ( use_utf8 ) {
+    result = bind_textdomain_codeset ( "efax-gtk", "UTF-8" ) ;
+    if ( ! result ) use_utf8 = 0 ;
+  }
+  textdomain ( "efax-gtk" ) ;
+
+  setlocale ( LC_ALL, "" ) ;
+  /* efax uses formatted text functions for floating point numbers,
+     so restore the C locale for that  */
+  setlocale ( LC_NUMERIC, "C" ) ;
+#endif
+
+  /* Initialize global/static variables */
+  init_errormsg();
+
   /* print initial message to both stderr & stdout */
   argv0 = argv[0] ;
+  memset((void *)lkfile, 0, sizeof(lkfile));  /* random effects on sparc linux */
   verb[1] = "ewia" ;
   msg ( "I " Version " " Copyright ) ;
   argv0 = efaxbasename ( argv0 ) ;
   msg ( "A compiled "__DATE__ " " __TIME__ ) ;
   verb[1] = "" ;
 
-  setlocale ( LC_ALL, "" ) ;
-
   while ( ! err && ! doneargs &&
 	 ( c = nextopt ( argc,argv,
-			"a:c:d:e:f:g:h:i:j:k:l:o:p:q:r:st:v:wx:T" ) ) != -1 ) {
+			"a:c:d:e:f:g:h:i:j:k:l:no:p:q:r:st:uv:wx:T" ) ) != -1 ) {
 
     switch (c) {
     case 'a': 
@@ -2251,10 +2571,20 @@ int main( int argc, char **argv)
       capsset = 1 ;
       break ;
     case 'l': 
-      if ( strlen ( nxtoptarg ) > IDLEN ) 
-	msg("Wlocal ID (%s) truncated to %d characters", nxtoptarg, IDLEN ) ;
-      if ( strspn ( nxtoptarg, " +0123456789" ) != strlen ( nxtoptarg ) )
-	msg("Wlocal ID (%s) has non-standard characters", nxtoptarg ) ;
+      if ( strlen ( nxtoptarg ) > IDLEN ) {
+	message = strdup2 ( "W ", gettext ( "local ID (%s) truncated to %d characters" ) ) ;
+	if ( message ) {
+	  msg ( message, nxtoptarg, IDLEN ) ;
+	  free ( message ) ;
+	}
+      }
+      if ( strspn ( nxtoptarg, " +0123456789" ) != strlen ( nxtoptarg ) ) {
+	message = strdup2 ( "W ", gettext ( "local ID (%s) has non-standard characters" ) ) ;
+	if ( message ) {
+	  msg ( message, nxtoptarg ) ;
+	  free ( message ) ;
+	}
+      }
       sprintf ( localid, "%*.*s", IDLEN, IDLEN, nxtoptarg ) ;
       break ;
     case 'i': 
@@ -2284,6 +2614,9 @@ int main( int argc, char **argv)
     case 'g': 
       getty = nxtoptarg ; 
       break ;
+    case 'n': 
+      msg ( "I %s", gettext ( "using line buffering of stdout" ) ) ; 
+      break ;
     case 'o':			/* most protocol options are globals */
       for ( ; *nxtoptarg ; nxtoptarg++ ) 
 	switch ( *nxtoptarg ) {
@@ -2303,8 +2636,13 @@ int main( int argc, char **argv)
 	}
       break ;
     case 'q':
-      if ( sscanf ( nxtoptarg , "%d", &maxpgerr ) != 1 || maxpgerr < 0 )
-	err=msg ("E2bad quality (-q) argument (%s)", nxtoptarg ) ;
+      if ( sscanf ( nxtoptarg , "%d", &maxpgerr ) != 1 || maxpgerr < 0 ) {
+	message = strdup2 ( "E2 ", gettext ( "incorrect quality (-q) argument (%s)" ) ) ;
+	if ( message ) {
+	  err=msg ( message, nxtoptarg ) ;
+	  free ( message ) ;
+	}
+      }
       break;
     case 'r': 
       ansfname = nxtoptarg ;
@@ -2323,6 +2661,10 @@ int main( int argc, char **argv)
       phnum = nxtoptarg ;
       doneargs=1 ; 
       break;
+    case 'u': 
+      if ( ! use_utf8 ) msg ( "E error in binding textdomain to UTF-8 codeset" ) ;
+      /* else msg ( "I using UTF-8 codeset" ) ; */
+      break ;
     case 'v': 
       verb[nverb] = nxtoptarg ; 
       nverb=1;
@@ -2352,6 +2694,8 @@ int main( int argc, char **argv)
   if ( ! header ) {
     char tmp [ MAXLINELEN ] ;
     now = time ( 0 ) ;
+    /* we do not want to convert from the locale to UTF-8 here if the -u
+       flag has been used, as this goes on the fax top header */
     strftime ( tmp, MAXLINELEN, "%c %%s   P. %%%%d", localtime ( &now ) ) ;
     sprintf ( header = headerbuf, tmp, localid ) ;
   }
@@ -2379,6 +2723,9 @@ int main( int argc, char **argv)
     }
 
     now = time(0) ;		/* do it here so use reception time */
+
+    /* we do not want to convert from the locale to UTF-8 here if the -u
+       flag has been used, as this creates a filename for the file system */
     strftime ( fnamepat, EFAX_PATH_MAX, ansfname, localtime ( &now ) ) ;
     strncat ( fnamepat, ".%03d", EFAX_PATH_MAX - strlen ( fnamepat ) ) ;
     newOFILE ( &ofile, O_TIFF_FAX, fnamepat, 0, 0, 0, 0 ) ;

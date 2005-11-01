@@ -4,11 +4,25 @@
 #include <string.h>
 #include <stdarg.h> 
 #include <time.h>
+#include <limits.h>
+
+#define ENABLE_NLS //#include <config.h>             /* For NLS */
+#ifdef ENABLE_NLS
+#include <libintl.h>
+#include <glib/gconvert.h>
+#include <glib/gunicode.h>
+#include <glib/gmem.h>
+#endif
 
 #include "efaxmsg.h"
 
 #define MAXTSTAMP 80		/* maximum length of a time stamp */
+
+#if PIPE_BUF>8192
 #define MAXMSGBUF 4096		/* maximum status/error message bytes held */
+#else
+#define MAXMSGBUF PIPE_BUF/2
+#endif
 
 #define NLOG 2
 
@@ -18,6 +32,8 @@ char *argv0 = "" ;
 int nxtoptind = 1 ;		/* for communication with nextopt() */
 char *nxtoptarg ;
 
+int use_utf8 = 0 ;
+int line_buffered = 0 ;
 
 /* For systems without strerror(3) */
 
@@ -32,6 +48,15 @@ extern char *strerror( int i )
 #endif
 
 
+/* Provide dummy gettext() function if there is no internationalisation support */
+
+#ifndef ENABLE_NLS
+static const char *gettext ( const char *text )
+{
+  return text;
+}
+#endif
+
 /* Print time stamp. */
 
 time_t tstamp ( time_t last, FILE *f )
@@ -39,12 +64,31 @@ time_t tstamp ( time_t last, FILE *f )
   time_t now ;
   char tbuf [ MAXTSTAMP ] ;
 
+#ifdef ENABLE_NLS
+  gsize written = 0 ;
+  char* message ;
+#endif
+
   now = time ( 0 ) ;
 
   strftime ( tbuf, MAXTSTAMP,  ( now - last > 600 ) ? "%c" : "%M:%S",
-	    localtime( &now ) ) ;
+	     localtime( &now ) ) ;
+#ifdef ENABLE_NLS
+  if ( use_utf8 ) {
+    if ( g_utf8_validate ( tbuf, -1, 0 ) ) {
+      fputs ( tbuf, f ) ;
+    } else {
+      message = g_locale_to_utf8 ( tbuf, -1, NULL, &written, NULL ) ;
+      if ( message ) {
+	fputs ( message, f ) ;
+	g_free ( message ) ;
+      }
+    }
+  }
+  else fputs ( tbuf, f ) ;
+#else
   fputs ( tbuf, f ) ;
-
+#endif
   return now ;
 }
 
@@ -96,16 +140,43 @@ int msg ( char *fmt, ... )
   static int atcol1 [ NLOG ] = { 1, 1 } ;
   
   int err=0, i, flags=0 ;
-  char *p ;
-  
+  char *p;
+
+#ifdef ENABLE_NLS
+  gsize written = 0 ;
+  char *message ;
+#endif
+
   va_list ap ;
   va_start ( ap, fmt ) ;
 
   if ( ! init ) {
     logfile[0] = stderr ;
     logfile[1] = stdout ;
-    for ( i=0 ; i<NLOG ; i++ )
-      setvbuf ( logfile[i], msgbuf[i], _IOFBF, MAXMSGBUF ) ;
+    for ( i=0 ; i<NLOG ; i++ ) {
+
+      /* have stderr line buffered so that shared error reporting
+	 mechanisms, such as that used by efax-gtk, do not cause
+	 partial writes of a UTF-8 character (in the unlikely event
+	 that the buffer for stderr maintained by this program would
+	 otherwise fill up before being flushed) - we need UTF-8
+	 validation checking at the read end anyway, but with line
+	 buffering of error messages we can have more than one process
+	 per pipe */
+      if ( !i && setvbuf ( logfile[i], msgbuf[i], _IOLBF, MAXMSGBUF ) )
+	setvbuf ( logfile[i], msgbuf[i], _IOFBF, MAXMSGBUF ) ; /* fallback */
+
+      /* stdout is busy, so unless the -n option is used, applications
+	 monitoring stdout must be able to handle partial UTF-8
+	 character writes from efax when the buffer flushes on filling
+	 up (which also entails having one pipe dedicated to efax as
+	 well as validation checking at the read end) - adopt full
+	 buffering for stdout unless -n option used for terminal
+	 output */
+      if ( i && ( !line_buffered || setvbuf ( logfile[i], msgbuf[i], _IOLBF, MAXMSGBUF ) ) )
+	   setvbuf ( logfile[i], msgbuf[i], _IOFBF, MAXMSGBUF ) ;
+
+    }
     cname ( 0 ) ;
     init = 1 ;
   }
@@ -121,9 +192,9 @@ int msg ( char *fmt, ... )
       case '+': flags |= NOLF ; break ;
       case '-': flags |= NOFLSH ; break ;
       default: 
-	if ( isdigit ( *p ) ) {
+	if ( isdigit ( (unsigned char) *p ) ) {
 	  err = *p - '0' ; 
-	} else if ( ! isupper ( *p ) ) {
+	} else if ( ! isupper ( (unsigned char) *p ) ) {
 	  goto print ;
 	}
       }
@@ -131,18 +202,36 @@ int msg ( char *fmt, ... )
       
     print:
 
-    if ( strchr ( verb[i], tolower ( *fmt ) ) ) {
+    if ( strchr ( verb[i], tolower ( (unsigned char) *fmt ) ) ) {
       
       if ( atcol1[i] ) {
 	fprintf ( logfile[i], "%s: ", argv0 ) ;
 	logtime[i] = tstamp ( logtime[i], logfile[i] ) ; 
-	fputs ( ( flags & E ) ? " Error: " : 
-		( flags & W ) ? " Warning: " : 
+	fputs ( ( flags & E ) ? gettext ( " Error: " ) : 
+		( flags & W ) ? gettext ( " Warning: " ) : 
 		" ",
 		logfile[i] ) ;
       }
       vfprintf( logfile[i], p, ap ) ;
-      if ( flags & S ) fprintf ( logfile[i], " %s", strerror ( errno ) ) ;
+      if ( flags & S ) {
+#ifdef ENABLE_NLS
+	message = strerror ( errno ) ;
+	if ( use_utf8 ) {
+	  if ( g_utf8_validate ( message, -1, 0 ) ) {
+	    fprintf ( logfile[i], " %s", message ) ;
+	  } else {
+	    message = g_locale_to_utf8 ( message, -1, NULL, &written, NULL ) ;
+	    if ( message ) {
+	      fprintf ( logfile[i], " %s", message ) ;
+	      g_free ( message ) ;
+	    }
+	  }
+	}
+	else fprintf ( logfile[i], " %s", message ) ;
+#else
+	fprintf ( logfile[i], " %s", strerror ( errno ) ) ;
+#endif
+      }
       if ( ! ( flags & NOLF ) ) fputs ( "\n", logfile[i] ) ;
       atcol1[i] = flags & NOLF ? 0 : 1 ;
       if ( ! ( flags & NOFLSH ) ) fflush ( logfile[i] ) ;

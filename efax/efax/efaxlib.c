@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "efaxmsg.h"
 #include "efaxlib.h"
@@ -41,6 +42,22 @@ int ckfmt ( char *p, int n )
   return n < 0 ;
 }
 
+char *strdup2 ( const char *str1, const char *str2 )
+{
+  int str1_len=0, str2_len=0 ;
+  char *out;
+
+  str1_len = strlen ( str1 ) ;
+  str2_len = strlen ( str2 ) ;
+
+  out = malloc ( str1_len + str2_len + 1 ) ;
+  if ( out ) {
+    memcpy ( out , str1, str1_len ) ;
+    memcpy ( out + str1_len, str2, str2_len + 1 ) ;
+  }
+
+  return out ;
+}
 
 /* Initialize state of variable-length code word encoder. */
 
@@ -605,7 +622,7 @@ int readline ( IFILE *f, short *runs, int *pels )
       
     case P_PCX:
       nb = ( ( f->page->w + 15 ) / 16 ) * 2 ;	/* round up */
-      if ( readpcx ( bits, nb, f ) != 0 ) {
+      if ( readpcx ( (char*) bits, nb, f ) != 0 ) {
 	nr = EOF ;
       } else {
    	nr = bittorun ( bits, nb, runs ) ;
@@ -645,7 +662,7 @@ int getformat ( uchar *p, int n )
     format = I_FAX ;
   } 
 
-  if ( ! format && ! strncmp ( p, "P4", 2 ) ) {
+  if ( ! format && ! strncmp ( (char*) p, "P4", 2 ) ) {
     format = I_PBM ;
   }
 
@@ -658,7 +675,7 @@ int getformat ( uchar *p, int n )
     }
   }
 
-  if ( ! format && ! strncmp ( p, "%!", 2 ) ) {
+  if ( ! format && ! strncmp ( (char*) p, "%!", 2 ) ) {
     msg ( "W Postscript input file will be treated as text" ) ;
   }
 
@@ -823,8 +840,8 @@ int tiff_next ( IFILE *f )
       long a, b, where=0 ;
       err = err || ( ( where = ftell ( f->f ) ) < 0 ) ;
       err = err || fseek ( f->f, tv, SEEK_SET ) ;
-      err = err || fread4 ( &a, f ) ;
-      err = err || fread4 ( &b, f ) ;
+      err = err || fread4 ( (unsigned long*) &a, f ) ;
+      err = err || fread4 ( (unsigned long*) &b, f ) ;
       err = err || fseek ( f->f, where, SEEK_SET ) ;
       ftv = (float) a / ( b ? b : 1 ) ;
     } else { 
@@ -905,7 +922,7 @@ int tiff_next ( IFILE *f )
   
   if ( ! err ) {
 
-    if ( fread4 ( &(f->next), f ) ) {
+    if ( fread4 ( (unsigned long*) &(f->next), f ) ) {
       err = msg ( "E2can't read offset to next TIFF directory" ) ;
     } else {
       if ( f->next ) {
@@ -932,8 +949,8 @@ int tiff_first ( IFILE *f )
 
   fread ( (uchar*) &magic, 1, 2, f->f ) ;
   f->bigend = ( *(uchar*) &magic == 'M' ) ? 1 : 0 ;
-  fread2 ( &version, f ) ;
-  fread4 ( &(f->next), f ) ;
+  fread2 ( (unsigned short*) &version, f ) ;
+  fread4 ( (unsigned long*) &(f->next), f ) ;
   
   msg ( "F TIFF version %d.%d file (%s-endian)",
        version/10, version%10, f->bigend ? "big" : "little" ) ;
@@ -1081,8 +1098,8 @@ int dcx_next ( IFILE *f )
   /* get this and next pages' offsets */
 
   fseek ( f->f, f->next, SEEK_SET ) ; 
-  fread4 ( &thisp, f ) ;
-  fread4 ( &nextp, f ) ;
+  fread4 ( (unsigned long*) &thisp, f ) ;
+  fread4 ( (unsigned long*) &nextp, f ) ;
 
   /* save address of next directory entry, if any */
 
@@ -1380,7 +1397,12 @@ void pgmwrite ( OFILE *f, uchar *buf, int n )
 */
 
 const char PSBEGIN [] =		/* start of file */
+/* This line is commented out, as multi-page files are invalid under
+   the EPS specification.  The text should be marked as PS if it is lawful
+   to include more than one page
   "%%!PS-Adobe-2.0 EPSF-2.0 \n"
+*/
+  "%%!PS-Adobe-2.0 \n"
   "%%%%Creator: efax (Copyright 1995 Ed Casas) \n"
   "%%%%Title: efix output\n"
   "%%%%Pages: (atend) \n"

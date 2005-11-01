@@ -1,3 +1,2 @@
 copy: *.config
-copy: *.patch
 tar.bz2: efax

@@ -2,10 +2,18 @@
 #include <signal.h>    
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <stdlib.h>
+
+#define ENABLE_NLS //#include <config.h>             /* For NLS */
+#ifdef ENABLE_NLS
+#include <libintl.h>
+#endif
 
 #include "efaxio.h"		/* EFAX */
 #include "efaxmsg.h"
 #include "efaxos.h"
+#include "efaxlib.h"
 
 #define MAXRESPB 1024	    /* maximum bytes of modem responses saved */
 
@@ -30,6 +38,15 @@ uchar startchar = DC2 ;	/* character to start reception */
 
 				/* response detector lookup tables */
 uchar rd_nexts [ 256 ] = { 0 }, rd_allowed [ 256 ] = { 0 } ;
+
+/* Provide dummy gettext() function if there is no internationalisation support */
+
+#ifndef ENABLE_NLS
+static const char *gettext ( const char *text )
+{
+  return text;
+}
+#endif
 
 /* Initialize two lookup tables used by a state machine to detect
    modem responses embedded in data.  The first shows which
@@ -112,7 +129,7 @@ int sendbuf ( TFILE *f, uchar *p, int n, int dcecps )
       }
 
       if ( tput ( f, buf, i ) < 0 )
-	err = msg ( "ES2fax device write error:" ) ;
+	err = msg ( "ES2 %s", gettext ( "fax device write error:" ) ) ;
 
       i = 0 ;
     }
@@ -226,6 +243,7 @@ int cmd ( TFILE *f, char *s, int t )
 {
   char buf [ CMDBUFSIZE ], *p = "" ;
   int resplen=0, pause=0 ;
+  char *message ;
 
   if ( t < 0 ) {
     pause = cmdpause ;
@@ -238,21 +256,31 @@ int cmd ( TFILE *f, char *s, int t )
 
   if ( s ) { 
 
-    while ( tgets ( f, buf, CMDBUFSIZE, pause ) )
-      msg ( "W- unexpected response \"%s\"", buf ) ;
+    while ( tgets ( f, buf, CMDBUFSIZE, pause ) ) {
+      /* Translator: the %s format item refers to the text of a modem response */
+      message = strdup2 ( "W- ", gettext ( "unexpected response \"%s\"" ) ) ;
+      if ( message ) {
+	msg ( message, buf ) ;
+	free ( message ) ;
+      }
+    }
 
     msg ( "C- command  \"%s\"", s ) ;
 
     if ( strlen(s) >= CMDBUFSIZE-4 ) {
-      msg ( "E modem command \"%s\" too long", s ) ;
+      message = strdup2 ( "E ", gettext ( "modem command \"%s\" too long" ) ) ;
+      if ( message ) {
+	msg ( message, s ) ;
+	free ( message ) ;
+      }
     } else {
       sprintf ( buf, "AT%s\r", s ) ;
-      tput ( f, buf, strlen(buf) ) ;
+      tput ( f, (uchar*) buf, strlen(buf) ) ;
     }
   }
 
   if ( t ) {
-
+    
     msg ( "C- waiting %.1f s", ((float) t)/10 ) ;
 
     while ( ( p = tgets ( f, buf, CMDBUFSIZE, t ) ) ) {
@@ -283,11 +311,31 @@ int cmd ( TFILE *f, char *s, int t )
 int ckcmd ( TFILE *f, int *err, char *s, int t, int r )
 {
   int c=0 ;
+  char *message ;
+
   if ( ( ! err || ! *err ) && ( c = cmd ( f, s, t ) ) != r && r ) {
-    msg ( err ? "E %s %s %s" : "W %s %s %s",
-	 c == EOF ? "timed out" : "wrong response",
-	 s ? "after command: " :  "after waiting",
-	 s ? s : "" ) ;
+    if ( c == EOF ) {
+      if ( s ) {
+	message = strdup2 ( err ? "E " : "W ", gettext ( "timed out after command: %s" ) ) ;
+	if ( message ) {
+	  msg ( message, s ) ;
+	  free ( message ) ;
+	}
+      } else {
+	msg ( err ? "E %s" : "W %s", gettext ( "timed out after waiting" ) ) ;
+      }
+    } else {
+      if ( s ) {
+	message = strdup2 ( err ? "E " : "W ", gettext ( "wrong response after command: %s" ) ) ;
+	if ( message ) {
+	  msg ( message, s ) ;
+	  free ( message ) ;
+	}
+      } else {
+	msg ( err ? "E %s" : "W %s", gettext ( "wrong response after waiting" ) ) ;
+      }
+    }
+
     if ( err ) *err = 3 ;
   }
   return c ;
@@ -313,25 +361,25 @@ int modemsync ( TFILE *f )
       ttymode ( f, VOICECOMMAND ) ;
       break ;
     case 2 : 
-      msg ("Isync: dropping DTR") ;
+      msg ("I %s", gettext ( "sync: dropping DTR" ) ) ;
       ttymode ( f, COMMAND ) ; msleep ( 200 ) ;
       ttymode ( f, DROPDTR ) ; msleep ( 200 ) ;
       ttymode ( f, COMMAND ) ; 
       break ;
     case 3 :
-      msg ("Isync: sending escapes") ;
+      msg ("I %s", gettext ( "sync: sending escapes" ) ) ;
       ttymode ( f, VOICECOMMAND ) ;
-      tput ( f, CAN_STR, 1 ) ;
-      tput ( f, DLE_ETX, 2 ) ; 
+      tput ( f, (uchar*) CAN_STR, 1 ) ;
+      tput ( f, (uchar*) DLE_ETX, 2 ) ; 
       msleep ( 100 ) ;
       ttymode ( f, COMMAND ) ;
-      tput ( f, CAN_STR, 1 ) ;
-      tput ( f, DLE_ETX, 2 ) ; 
+      tput ( f, (uchar*) CAN_STR, 1 ) ;
+      tput ( f, (uchar*) DLE_ETX, 2 ) ; 
       msleep ( 1500 ) ;
-      tput ( f, "+++", 3 ) ; 
+      tput ( f, (uchar*) "+++", 3 ) ; 
       break ;
     case 4 :
-      err = msg ("E4sync: modem not responding") ;
+      err = msg ("E4 %s", gettext ( "sync: modem not responding" ) ) ;
       continue ;
     }
     while ( method && cmd ( f, 0, 20 ) != EOF ) ;
@@ -349,17 +397,26 @@ int modemsync ( TFILE *f )
 int setup ( TFILE *f, char **cmds, int ignerr )
 {
   int err=0 ;
-  char c ;
+  char c, *message ;
 
   for ( ; ! err && *cmds ; cmds++ ) {
 #if 0
-    if ( *cmds && isdigit( **cmds ) ) {
+    if ( *cmds && isdigit( (unsigned char) **cmds ) ) {
       
     }
 #endif
     if ( ( c = cmd ( f, *cmds, -TO_RESET ) ) != OK && c !=  VCONNECT && 
 	! ignerr ) {
-      err = msg ( "E3modem command (%s) failed", *cmds ? *cmds : "none" ) ;
+      if ( *cmds ) {
+	/* Translator: the %s format item refers to the text of the failed command */
+	message = strdup2 ( "E3 ", gettext ( "modem command (%s) failed" ) ) ;
+	if ( message ) {
+	  err = msg ( message, *cmds ) ;
+	  free ( message ) ;
+	}
+      } else {
+	err = msg ( "E3 %s", gettext ( "modem command failed" ) ) ;
+      }
     }
   }
 
@@ -396,20 +453,33 @@ int begin_session ( TFILE *f, char *fname, int reverse, int hwfc,
 		    char **lkfile, ttymodes mode, void (*onsig) (int) )
 {
   int i, err=0, busy=0, minbusy=0 ;
+  char *message ;
 
   do {
     err = lockall ( lkfile, busy >= minbusy ) ;
     if ( ! err ) err = ttyopen ( f, fname, reverse, hwfc ) ;
     if ( err == 1 ) { 
       if ( busy++ >= minbusy ) {
-	msg ( "W %s locked or busy. waiting.", fname ) ;
+	/* Translator: the %s formatting item refers to the device name which is locked or busy */
+	message = strdup2 ( "W ", gettext ( "%s locked or busy - waiting" ) ) ;
+	if ( message ) {
+	  msg ( message, fname ) ;
+	  free ( message ) ;
+	}
 	minbusy = minbusy ? minbusy*2 : 1 ;
       }
       msleep ( lockpolldelay ) ;
     }
   } while ( err == 1 ) ;
   
-  if ( ! err ) msg ( "Iopened %s", fname ) ;
+  if ( ! err ) {
+    /* Translator: the %s formatting item refers to the device name which has been opened */
+    message = strdup2 ( "I ", gettext ( "opened %s" ) ) ;
+    if ( message ) {
+      msg ( message, fname ) ;
+      free ( message ) ;
+    }
+  }
 
   if ( ! err ) err = ttymode ( f, mode ) ;
 

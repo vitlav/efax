@@ -482,7 +482,7 @@ int lockall ( char **lkfiles, int log )
 { 
   int err = 0 ;
   char **p = lkfiles ;
-  while ( *p && ! err ) 
+  while ( *p && **p && ! err ) 
     if ( ( err = ttlock ( *p++, log ) ) == 3 ) err = 0 ; 
   return err ; 
 }
@@ -495,7 +495,7 @@ int unlockall ( char **lkfiles )
 { 
   int err = 0, i ;
   char **p = lkfiles ;
-  while ( *p ) 
+  while ( *p && **p ) 
     if ( ( i = ttunlock ( *p++ ) ) != 0 ) err = i ; 
   return err ; 
 }

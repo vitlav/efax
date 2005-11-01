@@ -1,6 +1,6 @@
 Name: efax
-Version: 0.9a001114
-Release: alt1
+Version: 0.9a051015
+Release: alt0.1
 
 Summary: A program for faxing using a Class 1, 2 or 2.0 fax modem
 Summary(ru_RU.KOI8-R): Программа для отправки и приёма факсов через факс-модем
@@ -9,9 +9,15 @@ License: GPL
 Group: Communications
 Url: http://www.cce.com/efax/
 
-Source: http://www.cce.com/efax/download/%name-%version.tar.bz2
+#%define ver 0.9a001114
+#Source: http://www.cce.com/efax/download/%name-%version.tar.bz2
+Source: http://etersoft.ru/download/%name-%version.tar.bz2
 Source1: %name-%version.config
-Patch1: %name-%version.patch
+#Patch: %name-%ver.patch
+#Patch1: %name-%version.patch
+
+# Automatically added by buildreq on Wed Nov 02 2005
+BuildRequires: gcc-c++ glib2-devel pkg-config
 
 %description
 Efax is a small ANSI C/POSIX program that sends and receives faxes using
@@ -20,7 +26,7 @@ any Class 1, 2 or 2.0 fax modem.
 You need to install efax if you want to send faxes and you have a
 Class 1, 2 or 2.0 fax modem.
 
-Please check /etc/efax.rc for your parameters (telephon number and machine id)
+Please check /etc/efax.rc for your parameters (telephone number and machine id)
 
 %description -l ru_RU.KOI8-R
 Efax -- это маленькая программа, написанная на ANSI C/POSIX, которая позволяет
@@ -30,20 +36,25 @@ Efax -- это маленькая программа, написанная на ANSI C/POSIX, которая позволяет
 
 %prep
 %setup -q
-%patch1 -p1
+# -n %name-%ver
+#%patch -p1
+#%patch1 -p0
 
 %build
+./autogen.sh
+%configure
 %make LDFLAGS="-s"
-%__subst "s|logfile=|logfile=\${LOGDIR}/|g" fax
+%__subst "s|logfile=|logfile=\${LOGDIR}/|g" efax/fax
 
 %install
-mkdir -p $RPM_BUILD_ROOT%_bindir
-mkdir -p $RPM_BUILD_ROOT%_mandir/man1
-mkdir -p $RPM_BUILD_ROOT/var/spool/fax
+#mkdir -p %buildroot%_bindir
+#mkdir -p %buildroot%_mandir/man1
+mkdir -p %buildroot/var/spool/fax
 
-make BINDIR=$RPM_BUILD_ROOT%_bindir MANDIR=$RPM_BUILD_ROOT%_mandir install
-
-%__install -D -m644 %SOURCE1 $RPM_BUILD_ROOT%_sysconfdir/%name.rc
+#make BINDIR=%buildroot%_bindir MANDIR=%buildroot%_mandir install
+%makeinstall
+%__install -m755 efax/fax %buildroot%_bindir/
+%__install -D -m644 %SOURCE1 %buildroot%_sysconfdir/%name.rc
 
 %files
 %doc README PATCHES
@@ -55,6 +66,9 @@ make BINDIR=$RPM_BUILD_ROOT%_bindir MANDIR=$RPM_BUILD_ROOT%_mandir install
 %attr(775, lp, lp) /var/spool/fax
 
 %changelog
+* Wed Nov 02 2005 Vitaly Lipatov <lav@altlinux.ru> 0.9a051015-alt0.1
+- new version (Utf patches from efax-gtk project)
+
 * Wed Jun 16 2004 Vitaly Lipatov <lav@altlinux.ru> 0.9a001114-alt1
 - updated version with better support some Linmodems
 - patches from efax-gtk project

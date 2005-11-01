@@ -24,6 +24,9 @@ int msg ( char *fmt, ... ) ;
 extern int nxtoptind ;
 extern char *nxtoptarg ;
 
+extern int use_utf8 ;
+extern int line_buffered ;
+
 int nextopt( int argc, char **argv, char *args ) ;
 
 #endif
