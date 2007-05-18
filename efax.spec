@@ -1,6 +1,7 @@
+# http://shino.pos.to/linux/efax.html
 Name: efax
 Version: 0.9a051015
-Release: alt0.1
+Release: alt1
 
 Summary: A program for faxing using a Class 1, 2 or 2.0 fax modem
 Summary(ru_RU.KOI8-R): Программа для отправки и приёма факсов через факс-модем
@@ -8,6 +9,8 @@ Summary(ru_RU.KOI8-R): Программа для отправки и приёма факсов через факс-модем
 License: GPL
 Group: Communications
 Url: http://www.cce.com/efax/
+
+Packager: Vitaly Lipatov <lav@altlinux.ru>
 
 #%define ver 0.9a001114
 #Source: http://www.cce.com/efax/download/%name-%version.tar.bz2
@@ -49,7 +52,7 @@ Efax -- это маленькая программа, написанная на ANSI C/POSIX, которая позволяет
 %install
 #mkdir -p %buildroot%_bindir
 #mkdir -p %buildroot%_mandir/man1
-mkdir -p %buildroot/var/spool/fax
+mkdir -p %buildroot%_spooldir/fax
 
 #make BINDIR=%buildroot%_bindir MANDIR=%buildroot%_mandir install
 %makeinstall
@@ -62,10 +65,13 @@ mkdir -p %buildroot/var/spool/fax
 %_bindir/fax
 %_bindir/%name
 %_bindir/efix
-%_mandir/man1/*
-%attr(775, lp, lp) /var/spool/fax
+%_man1dir/*
+%attr(775, lp, lp) %_spooldir/fax
 
 %changelog
+* Sat May 19 2007 Vitaly Lipatov <lav@altlinux.ru> 0.9a051015-alt1
+- rebuild (fix bug #11710)
+
 * Wed Nov 02 2005 Vitaly Lipatov <lav@altlinux.ru> 0.9a051015-alt0.1
 - new version (Utf patches from efax-gtk project)
 
@@ -76,7 +82,7 @@ mkdir -p %buildroot/var/spool/fax
 - move config file to original place - /etc/efax.rc
 - make good default configuration in efax.rc
 - logfiles created in LOGDIR only
- 
+
 * Mon Oct 28 2002 Konstantin Volckov <goldhead@altlinux.ru> 0.9-ipl10mdk
 - Rebuilt in new environment
 
