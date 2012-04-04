@@ -1,7 +1,7 @@
 # http://shino.pos.to/linux/efax.html
 Name: efax
 Version: 0.9a051015
-Release: alt2
+Release: alt2.1
 
 Summary: A program for faxing using a Class 1, 2 or 2.0 fax modem
 Summary(ru_RU.KOI8-R): Программа для отправки и приёма факсов через факс-модем
@@ -18,6 +18,7 @@ Source: http://etersoft.ru/download/%name-%version.tar.bz2
 Source1: %name-%version.config
 #Patch: %name-%ver.patch
 #Patch1: %name-%version.patch
+Patch2: %name-0.9a051015-alt-glib2-2.32.0.patch
 
 # Automatically added by buildreq on Mon Dec 31 2007
 BuildRequires: gcc-c++ glib2-devel cvs
@@ -42,6 +43,7 @@ Efax -- это маленькая программа, написанная на ANSI C/POSIX, которая позволяет
 # -n %name-%ver
 #%patch -p1
 #%patch1 -p0
+%patch2 -p2
 
 %build
 #./autogen.sh
@@ -70,6 +72,9 @@ mkdir -p %buildroot%_spooldir/fax
 %attr(775, lp, lp) %_spooldir/fax
 
 %changelog
+* Wed Apr 04 2012 Eugeny A. Rostovtsev (REAL) <real at altlinux.org> 0.9a051015-alt2.1
+- Fixed build with new glib2
+
 * Tue Jan 01 2008 Vitaly Lipatov <lav@altlinux.ru> 0.9a051015-alt2
 - add autoreconf
 
