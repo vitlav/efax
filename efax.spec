@@ -1,10 +1,10 @@
 # http://shino.pos.to/linux/efax.html
 Name: efax
 Version: 0.9a051015
-Release: alt2.1
+Release: alt3
 
 Summary: A program for faxing using a Class 1, 2 or 2.0 fax modem
-Summary(ru_RU.KOI8-R): Программа для отправки и приёма факсов через факс-модем
+Summary(ru_RU.UTF-8): п÷я─п╬пЁя─п╟п╪п╪п╟ п╢п╩я▐ п╬я┌п©я─п╟п╡п╨п╦ п╦ п©я─п╦я▒п╪п╟ я└п╟п╨я│п╬п╡ я┤п╣я─п╣п╥ я└п╟п╨я│-п╪п╬п╢п╣п╪
 
 License: GPL
 Group: Communications
@@ -14,14 +14,15 @@ Packager: Vitaly Lipatov <lav@altlinux.ru>
 
 #%define ver 0.9a001114
 #Source: http://www.cce.com/efax/download/%name-%version.tar.bz2
-Source: http://etersoft.ru/download/%name-%version.tar.bz2
+Source: http://etersoft.ru/download/%name-%version.tar
+
 Source1: %name-%version.config
 #Patch: %name-%ver.patch
 #Patch1: %name-%version.patch
 Patch2: %name-0.9a051015-alt-glib2-2.32.0.patch
 
 # Automatically added by buildreq on Mon Dec 31 2007
-BuildRequires: gcc-c++ glib2-devel cvs
+BuildRequires: gcc-c++ glib2-devel
 
 %description
 Efax is a small ANSI C/POSIX program that sends and receives faxes using
@@ -30,37 +31,36 @@ any Class 1, 2 or 2.0 fax modem.
 You need to install efax if you want to send faxes and you have a
 Class 1, 2 or 2.0 fax modem.
 
-Please check /etc/efax.rc for your parameters (telephone number and machine id)
+Please check /etc/efax.rc for your parameters (telephone number and machine id).
 
-%description -l ru_RU.KOI8-R
-Efax -- это маленькая программа, написанная на ANSI C/POSIX, которая позволяет
-принимать и отправлять факсы через любой факс-модем класс 1, 2 или 2.0.
+Use efax-gtk if you need graphical interface.
 
-Не забудьте проверить настройки в /etc/efax.rc (номер телефона и название станции)
+%description -l ru_RU.UTF-8
+Efax -- я█я┌п╬ п╪п╟п╩п╣п╫я▄п╨п╟я▐ п©я─п╬пЁя─п╟п╪п╪п╟, п╫п╟п©п╦я│п╟п╫п╫п╟я▐ п╫п╟ ANSI C/POSIX, п╨п╬я┌п╬я─п╟я▐ п©п╬п╥п╡п╬п╩я▐п╣я┌
+п©я─п╦п╫п╦п╪п╟я┌я▄ п╦ п╬я┌п©я─п╟п╡п╩я▐я┌я▄ я└п╟п╨я│я▀ я┤п╣я─п╣п╥ п╩я▌п╠п╬п╧ я└п╟п╨я│-п╪п╬п╢п╣п╪ п╨п╩п╟я│я│п╟ 1, 2 п╦п╩п╦ 2.0.
+
+п²п╣ п╥п╟п╠я┐п╢я▄я┌п╣ п©я─п╬п╡п╣я─п╦я┌я▄ п╫п╟я│я┌я─п╬п╧п╨п╦ п╡ /etc/efax.rc (п╫п╬п╪п╣я─ я┌п╣п╩п╣я└п╬п╫п╟ п╦ п╫п╟п╥п╡п╟п╫п╦п╣ я│я┌п╟п╫я├п╦п╦).
+
+п≤п╪п╣п╣я┌я│я▐ пЁя─п╟я└п╦я┤п╣я│п╨п╟я▐ п╬п╠п╬п╩п╬я┤п╨п╟ Б─■ efax-gtk.
 
 %prep
-%setup -q
-# -n %name-%ver
+%setup
 #%patch -p1
 #%patch1 -p0
 %patch2 -p2
 
 %build
-#./autogen.sh
-%__autoreconf
+%autoreconf
 %configure
 %make LDFLAGS="-s"
 %__subst "s|logfile=|logfile=\${LOGDIR}/|g" efax/fax
 
 %install
-#mkdir -p %buildroot%_bindir
-#mkdir -p %buildroot%_mandir/man1
 mkdir -p %buildroot%_spooldir/fax
 
-#make BINDIR=%buildroot%_bindir MANDIR=%buildroot%_mandir install
 %makeinstall
-%__install -m755 efax/fax %buildroot%_bindir/
-%__install -D -m644 %SOURCE1 %buildroot%_sysconfdir/%name.rc
+install -m755 efax/fax %buildroot%_bindir/
+install -D -m644 %SOURCE1 %buildroot%_sysconfdir/%name.rc
 
 %files
 %doc README PATCHES
@@ -72,6 +72,9 @@ mkdir -p %buildroot%_spooldir/fax
 %attr(775, lp, lp) %_spooldir/fax
 
 %changelog
+* Tue Apr 24 2012 Vitaly Lipatov <lav@altlinux.ru> 0.9a051015-alt3
+- cleanup spec
+
 * Wed Apr 04 2012 Eugeny A. Rostovtsev (REAL) <real at altlinux.org> 0.9a051015-alt2.1
 - Fixed build with new glib2
 
