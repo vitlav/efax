@@ -1,3 +1,4 @@
-copy: *.config
-copy: *.patch
-tar: efax
+copy: .gear/*.config
+copy: .gear/*.patch
+tar: .
+spec: .gear/efax.spec

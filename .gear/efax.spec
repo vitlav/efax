@@ -12,9 +12,7 @@ Url: http://www.cce.com/efax/
 
 Packager: Vitaly Lipatov <lav@altlinux.ru>
 
-#%define ver 0.9a001114
-#Source: http://www.cce.com/efax/download/%name-%version.tar.bz2
-Source: http://etersoft.ru/download/%name-%version.tar
+Source: %name-%version.tar
 
 Source1: %name-%version.config
 #Patch: %name-%ver.patch
