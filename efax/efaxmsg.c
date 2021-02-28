@@ -9,9 +9,7 @@
 #define ENABLE_NLS //#include <config.h>             /* For NLS */
 #ifdef ENABLE_NLS
 #include <libintl.h>
-#include <glib/gconvert.h>
-#include <glib/gunicode.h>
-#include <glib/gmem.h>
+#include <glib.h>
 #endif
 
 #include "efaxmsg.h"
