@@ -208,7 +208,7 @@ int runor ( short *a, int na, short *b, int nb, short *c, int *pels ) ;
 /* Bit reversal lookup tables (note that the `normalbits' array
    is the one actually used for the bit reversal.  */
 
-uchar reversebits [ 256 ], normalbits [ 256 ] ;
+extern uchar reversebits [ 256 ], normalbits [ 256 ] ;
 
 void initbittab(void) ;
 

@@ -26,6 +26,11 @@ extern t4tab btab [ ( 64 + 27 + 13 ) + 1 ] ;
 
 short short256 = 256 ;		/* for endian-ness detection */
 
+/* Bit reversal lookup tables (note that the `normalbits' array
+   is the one actually used for the bit reversal.  */
+
+uchar reversebits [ 256 ], normalbits [ 256 ] ;
+
 /* Make sure printf strings have only %d escapes and n or fewer
    of them.  Returns 0 if OK, 1 on error. */
 
